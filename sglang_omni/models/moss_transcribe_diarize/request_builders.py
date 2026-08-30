@@ -457,6 +457,10 @@ def make_moss_transcribe_diarize_scheduler_adapters(
         repetition_penalty = _sampling_param(
             params, explicit_fields, "repetition_penalty", 1.0, float
         )
+        # Same range SamplingParams enforces; failing here keeps the error
+        # on the request path instead of inside the scheduler.
+        if not 0.0 < repetition_penalty <= 2.0:
+            raise ValueError("repetition_penalty must be in (0, 2]")
         # note (db-ol): the model default was sized for short clips and
         # silently cuts transcripts past about 20 minutes. Scale the default
         # budget with duration unless the operator configured a fixed one.
@@ -470,13 +474,16 @@ def make_moss_transcribe_diarize_scheduler_adapters(
                 raise ValueError("max_new_tokens must be at least 1")
         elif duration_scaled_default:
             if audio_duration_s <= 0.0:
+                # Empty audio has no legitimate long transcript; keep the
+                # same floor as the scaled path so a loop cannot burn the
+                # full fixed default here either.
+                request_max_new_tokens = min(max_new_tokens, _MIN_SCALED_OUTPUT_TOKENS)
                 logger.warning(
                     "Request %s decoded to empty audio, the output budget "
-                    "falls back to the fixed default %d",
+                    "falls back to %d",
                     payload.request_id,
-                    max_new_tokens,
+                    request_max_new_tokens,
                 )
-                request_max_new_tokens = max_new_tokens
             else:
                 # note: scale the budget with duration in both directions.
                 # Raising it keeps dense transcripts past ~20 minutes from

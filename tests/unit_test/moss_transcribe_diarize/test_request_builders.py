@@ -544,6 +544,64 @@ def test_request_builder_repetition_penalty_passthrough() -> None:
     assert data.req.sampling_params.repetition_penalty == 1.3
 
 
+def test_request_builder_rejects_out_of_range_repetition_penalty() -> None:
+    request_builder = _request_builder()
+
+    with pytest.raises(ValueError, match="repetition_penalty"):
+        request_builder(
+            _payload(
+                params={"repetition_penalty": 2.5},
+                metadata={
+                    "model": "moss-transcribe-diarize",
+                    EXPLICIT_GENERATION_PARAMS_KEY: ["repetition_penalty"],
+                },
+            )
+        )
+
+
+def test_request_builder_scaled_budget_floor_boundary() -> None:
+    # 12.8s * 10 tokens/s lands exactly on the 128 floor; 13s clears it.
+    processor = FakeProcessor()
+    request_builder, _ = make_moss_transcribe_diarize_scheduler_adapters(
+        processor=processor,
+        tokenizer=processor.tokenizer,
+        max_new_tokens=5120,
+        context_length=TEST_CONTEXT_LENGTH,
+    )
+
+    at_floor = request_builder(
+        _payload_with_inputs({"audios": [_wav_bytes(num_samples=int(16000 * 12.8))]})
+    )
+    above_floor = request_builder(
+        _payload_with_inputs({"audios": [_wav_bytes(num_samples=16000 * 13)]})
+    )
+
+    assert at_floor.req.sampling_params.max_new_tokens == 128
+    assert above_floor.req.sampling_params.max_new_tokens == 130
+
+
+def test_request_builder_empty_audio_budget_keeps_floor(monkeypatch) -> None:
+    import dataclasses
+
+    real_prepare = request_builders.prepare_audio
+
+    def zero_duration(*args, **kwargs):
+        return dataclasses.replace(real_prepare(*args, **kwargs), duration_s=0.0)
+
+    monkeypatch.setattr(request_builders, "prepare_audio", zero_duration)
+    processor = FakeProcessor()
+    request_builder, _ = make_moss_transcribe_diarize_scheduler_adapters(
+        processor=processor,
+        tokenizer=processor.tokenizer,
+        max_new_tokens=5120,
+        context_length=TEST_CONTEXT_LENGTH,
+    )
+
+    data = request_builder(_payload())
+
+    assert data.req.sampling_params.max_new_tokens == 128
+
+
 def test_request_builder_uses_moss_sampling_defaults() -> None:
     request_builder = _request_builder()
 

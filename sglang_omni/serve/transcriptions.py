@@ -116,6 +116,7 @@ def register_transcriptions(app: FastAPI) -> None:
                 language=form.language,
                 prompt=form.prompt,
                 temperature=form.temperature,
+                repetition_penalty=form.repetition_penalty,
                 max_new_tokens=form.max_new_tokens,
                 stream=True,
             )
@@ -173,6 +174,7 @@ def register_transcriptions(app: FastAPI) -> None:
                 language=form.language,
                 prompt=form.prompt,
                 temperature=form.temperature,
+                repetition_penalty=form.repetition_penalty,
                 max_new_tokens=form.max_new_tokens,
                 segment_timestamps=segment_timestamps,
             )
@@ -209,6 +211,7 @@ def register_transcriptions(app: FastAPI) -> None:
                     language=form.language,
                     prompt=form.prompt,
                     temperature=form.temperature,
+                    repetition_penalty=form.repetition_penalty,
                     max_new_tokens=form.max_new_tokens,
                     max_concurrent=chunking.max_concurrent_chunks,
                     condition_on_previous_text=chunking.condition_on_previous_text,
@@ -295,6 +298,7 @@ def _build_chunk_generate_request(
     language: str | None,
     prompt: str | None,
     temperature: float | None,
+    repetition_penalty: float | None,
     max_new_tokens: int | None,
     stream: bool = False,
 ) -> GenerateRequest:
@@ -308,6 +312,7 @@ def _build_chunk_generate_request(
         language=language,
         prompt=prompt,
         temperature=temperature,
+        repetition_penalty=repetition_penalty,
         max_new_tokens=max_new_tokens,
         stream=stream,
     )
@@ -323,6 +328,7 @@ async def _transcribe_audio_chunks(
     language: str | None,
     prompt: str | None,
     temperature: float | None,
+    repetition_penalty: float | None,
     max_new_tokens: int | None,
     max_concurrent: int,
     condition_on_previous_text: bool,
@@ -360,6 +366,7 @@ async def _transcribe_audio_chunks(
                 language=language,
                 prompt=chunk_prompt,
                 temperature=temperature,
+                repetition_penalty=repetition_penalty,
                 max_new_tokens=max_new_tokens,
             )
             retry_suffix = "-retry" if retry else ""
