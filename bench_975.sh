@@ -10,6 +10,9 @@ nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv || true
 
 echo "== install baseline sglang-omni==0.1.3 =="
 pip install -q "sglang-omni==0.1.3" 2>&1 | tail -2
+# the package pins typer>=0.9.0, but the sgl-omni CLI uses typing.Literal
+# options that older typer can't parse; make sure a current typer is present.
+pip install -q -U typer 2>&1 | tail -1
 
 echo "== fetch test audio =="
 rm -rf /tmp/so && git clone -q --depth 1 --filter=blob:none --sparse https://github.com/sgl-project/sglang-omni /tmp/so
@@ -57,14 +60,19 @@ bench() {  # $1 = label
 }
 
 echo "== BASELINE 0.1.3 =="
-serve baseline && wait_ready baseline && bench "baseline-0.1.3"
+serve baseline
+if ! wait_ready baseline; then echo "ABORT: baseline server failed"; exit 1; fi
+bench "baseline-0.1.3"
 stop_server
 
 echo "== install PR #1840 branch =="
 pip install -q "git+https://github.com/ruiling-smartbear/sglang-omni.git@fix/moss-td-short-audio-token-budget" 2>&1 | tail -2
+pip install -q -U typer 2>&1 | tail -1
 
 echo "== FIXED PR#1840 =="
-serve fixed && wait_ready fixed && bench "pr1840"
+serve fixed
+if ! wait_ready fixed; then echo "ABORT: fixed server failed"; exit 1; fi
+bench "pr1840"
 stop_server
 
 echo "BENCH_DONE"
