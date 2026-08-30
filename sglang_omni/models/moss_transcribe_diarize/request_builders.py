@@ -44,6 +44,9 @@ DEFAULT_TOP_K = 50
 # tokens per audio second including time markers, so 10 leaves roughly 2x
 # headroom without approaching the input token cost of the same audio.
 _OUTPUT_TOKENS_PER_AUDIO_SECOND = 10
+# Floor for the duration scaled budget: even a near-empty clip needs room
+# for the timestamped, speaker-labelled framing around a short transcript.
+_MIN_SCALED_OUTPUT_TOKENS = 128
 # Note (yichi): MOSS-Transcribe-Diarize is an audio LLM: a Qwen3 text decoder
 # over Whisper audio embeddings, trained on a fixed transcribe+diarize
 # instruction with the timestamped/speaker-labelled transcript as the target
@@ -449,6 +452,11 @@ def make_moss_transcribe_diarize_scheduler_adapters(
         )
         top_p = _sampling_param(params, explicit_fields, "top_p", DEFAULT_TOP_P, float)
         top_k = _sampling_param(params, explicit_fields, "top_k", DEFAULT_TOP_K, int)
+        # Opt-in mitigation for repetition loops (#975): honoured only when
+        # the caller sets it explicitly, so greedy defaults stay unchanged.
+        repetition_penalty = _sampling_param(
+            params, explicit_fields, "repetition_penalty", 1.0, float
+        )
         # note (db-ol): the model default was sized for short clips and
         # silently cuts transcripts past about 20 minutes. Scale the default
         # budget with duration unless the operator configured a fixed one.
@@ -468,10 +476,20 @@ def make_moss_transcribe_diarize_scheduler_adapters(
                     payload.request_id,
                     max_new_tokens,
                 )
-            request_max_new_tokens = max(
-                max_new_tokens,
-                math.ceil(audio_duration_s * _OUTPUT_TOKENS_PER_AUDIO_SECOND),
-            )
+                request_max_new_tokens = max_new_tokens
+            else:
+                # note: scale the budget with duration in both directions.
+                # Raising it keeps dense transcripts past ~20 minutes from
+                # being cut; capping it keeps greedy decoding from looping
+                # until the fixed default on short non-speech audio
+                # (laughter, noise), which inflated per-request latency
+                # ~40x and cut CI batch throughput ~19% (#975). The floor
+                # never exceeds the operator's fixed default, so a small
+                # configured budget still bounds short requests.
+                request_max_new_tokens = max(
+                    min(max_new_tokens, _MIN_SCALED_OUTPUT_TOKENS),
+                    math.ceil(audio_duration_s * _OUTPUT_TOKENS_PER_AUDIO_SECOND),
+                )
         else:
             request_max_new_tokens = max_new_tokens
         sampling_params = SamplingParams(
@@ -479,6 +497,7 @@ def make_moss_transcribe_diarize_scheduler_adapters(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            repetition_penalty=repetition_penalty,
             stop_token_ids=[eos_token_id],
         )
         sampling_params.normalize(tokenizer=None)
@@ -509,6 +528,7 @@ def make_moss_transcribe_diarize_scheduler_adapters(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            repetition_penalty=repetition_penalty,
             audio_duration_s=audio_duration_s,
             language=str(params.get("language") or "auto"),
             engine_start_s=time.perf_counter(),
