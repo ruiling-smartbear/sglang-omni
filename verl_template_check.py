@@ -57,6 +57,8 @@ def scenarios() -> list[tuple[str, list[dict[str, Any]]]]:
     return [
         ("user-last", base),
         ("tool-last", base + [asst, tool]),
+        ("system-last", base + [asst, tool, {"role": "system", "content": "Budget: three more tool calls."}]),
+        ("tool-then-user", base + [asst, tool, {"role": "user", "content": "Thanks, keep going."}]),
         ("multi-tool-last", base + [{**asst, "tool_calls": [tool_call, second_call]}, tool, {**tool, "tool_call_id": "call-2"}]),
         ("assistant-then-user", base + [{"role": "assistant", "content": "Let me check.", "reasoning_content": "thinking..."}, {"role": "user", "content": "Please do."}]),
         ("long-tool-loop", base + long_tail),
