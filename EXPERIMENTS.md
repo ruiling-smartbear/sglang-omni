@@ -7,10 +7,12 @@ clone the repositories they compare, so each one is reproducible on its own.
 
 | question | script | write-up / where the numbers went |
 |---|---|---|
-| Can the generation prompt come out of the **last append group's render** (`add_generation_prompt=True` on that render) instead of two full-history renders? | `verl_fold_probe.py` | [`generation_prompt_fold_experiment.md`](generation_prompt_fold_experiment.md) — 262 template-rendered cases, 0 differences; posted on [#7617](https://github.com/verl-project/verl/issues/7617#issuecomment-5473497404) |
+| Can the generation prompt come out of the **last append group's render** (`add_generation_prompt=True` on that render) instead of two full-history renders? | `verl_fold_probe_harness.py` (trajectories shaped like `tool_agent_loop`'s, 24 cases per model, Gemma 4 included, full-history reference column); `verl_fold_probe.py` is the earlier API-shaped matrix | [`generation_prompt_fold_experiment.md`](generation_prompt_fold_experiment.md) — 216 template-rendered cases across 9 templates, 0 differences; posted on [#7617](https://github.com/verl-project/verl/issues/7617#issuecomment-5473497404) |
 | Is the delta **constant across turns** per family, and does it depend on the final role? | `verl_cacheability_check.py` | table below; the role dependence (DeepSeek emits nothing after a tool output) is posted on [#7617](https://github.com/verl-project/verl/issues/7617#issuecomment-5473506807) |
 | Does **caching** the delta (keyed by final role + tools, revalidated) reproduce main's token ids, and how much does it save? | `verl_cache_bench.py` | table in the [#7619](https://github.com/verl-project/verl/pull/7619) description |
 | What does each template's `add_generation_prompt` guard actually read? | `verl_template_snippets.py` | Jinja table in [`generation_prompt_experiment.md`](generation_prompt_experiment.md) |
+| Where exactly does DeepSeek-V3.2-Exp's template fail on verl's synthetic tool prefix? | `verl_deepseek_template.py` | `arguments: {}` (a mapping) concatenated as a string — `TypeError: can only concatenate str (not "dict")` |
+| Why does the Gemma 4 tokenizer not load, and what does its generation-prompt guard read? | `verl_gemma4_load.py` | needs transformers ≥ 5; the guard reads `ns.prev_message_type` (nothing after a tool response) |
 | Why do the three gpt-oss renders disagree on a tool-final append? | `verl_gptoss_detail.py` | decoded diff in both write-ups: the tool path is hand-built, and tool content is not JSON-encoded |
 | Earlier: bounded pseudo-tail render vs full-history render, 28 scenarios × 4 Qwen models, 50/100/200-turn timings | `verl_template_check.py` | superseded by the cache design; numbers were in the first version of the #7619 description |
 
