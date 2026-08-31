@@ -1,51 +1,75 @@
 #!/usr/bin/env bash
 # Validation benchmark for sglang-omni PR #1840 / issue #975.
-# Compares MOSS-Transcribe-Diarize transcription latency on short non-speech
-# vs speech audio, baseline (pip sglang-omni==0.1.3) vs the PR branch.
-# Intended for a fresh single-GPU environment (A10G/L4 class is enough).
+# A/B on one dependency stack: the PR base commit on main vs the PR branch.
+# Measures MOSS-Transcribe-Diarize transcription latency and output length on
+# non-speech clips (laughter/crying/sneezing) and on normal speech.
+# Needs a single sm90+ GPU (H100/H200/B200) because sgl-kernel ships sm90/sm100.
 set -u
+
+BASE_SHA=3f819f9cdae3d4eeec22f73306c9067a1ec2542e
+BASE_PKG="git+https://github.com/sgl-project/sglang-omni.git@${BASE_SHA}"
+PR_PKG="git+https://github.com/ruiling-smartbear/sglang-omni.git@fix/moss-td-short-audio-token-budget"
+
+versions() {  # $1 = label
+  python3 - "$1" <<'PY'
+import importlib.metadata as m, sys
+def v(name):
+    try:
+        return m.version(name)
+    except Exception:
+        return "missing"
+print(f"VERSIONS | {sys.argv[1]} | sglang-omni={v('sglang-omni')} sglang={v('sglang')} torch={v('torch')}")
+PY
+}
 
 echo "== GPU =="
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv || true
 
-echo "== install baseline sglang-omni==0.1.3 =="
-# Full install only when the stack is missing; afterwards swap just the
-# sglang_omni package with --no-deps so A and B run on identical dependencies.
-python3 -c "import sglang, sglang_omni" 2>/dev/null || pip install -q "sglang-omni==0.1.3" 2>&1 | tail -2
-pip install -q --no-deps --force-reinstall "sglang-omni==0.1.3" 2>&1 | tail -1
-python3 -c "import sglang_omni,importlib.metadata as m;print('sglang-omni', m.version('sglang-omni'))"
+echo "== install base (main @ ${BASE_SHA:0:7}) with dependencies =="
+# Full dependency resolution happens once, here. The PR install below reuses it
+# with --no-deps, so both sides run on byte-identical dependencies and the only
+# difference is the three files this PR touches.
+pip install -q "$BASE_PKG" 2>&1 | tail -3
 # the package pins typer>=0.9.0, but the sgl-omni CLI uses typing.Literal
-# options that older typer can't parse; make sure a current typer is present.
+# options that older typer cannot parse; make sure a current typer is present.
 pip install -q -U typer 2>&1 | tail -1
+versions base
 
 echo "== fetch test audio =="
 rm -rf /tmp/so && git clone -q --depth 1 --filter=blob:none --sparse https://github.com/sgl-project/sglang-omni /tmp/so
 cd /tmp/so && git sparse-checkout set -q tests/data
 
-python3 - <<'PY'
-import soundfile as sf, numpy as np
-d, sr = sf.read('/tmp/so/tests/data/cough.wav')
-if d.ndim > 1:
-    d = d.mean(axis=1)
-target = int(6.0 * sr)
-reps = max(1, -(-target // len(d)))
-sf.write('/tmp/nonspeech6s.wav', np.tile(d, reps)[:target], sr)
-print('made /tmp/nonspeech6s.wav: 6.0s at', sr, 'Hz (looped cough = non-speech)')
-PY
-
-echo "== fetch ESC-50 non-speech clips (laughing x3, crying_baby, sneezing) =="
+echo "== fetch ESC-50 non-speech clips =="
 curl -sL https://raw.githubusercontent.com/karolpiczak/ESC-50/master/meta/esc50.csv -o /tmp/esc50.csv
 python3 - <<'PY'
 import csv, os, urllib.request
+import numpy as np, soundfile as sf
+
 rows = list(csv.DictReader(open('/tmp/esc50.csv')))
-def pick(cat, n): return [r['filename'] for r in rows if r['category'] == cat][:n]
-picks = pick('laughing', 3) + pick('crying_baby', 1) + pick('sneezing', 1)
+picks = [r['filename'] for r in rows if r['category'] == 'laughing'][:3]
+picks += [r['filename'] for r in rows if r['category'] == 'crying_baby'][:1]
+picks += [r['filename'] for r in rows if r['category'] == 'sneezing'][:1]
 os.makedirs('/tmp/esc', exist_ok=True)
-for i, f in enumerate(picks):
-    cat = next(r['category'] for r in rows if r['filename'] == f)
-    dst = f'/tmp/esc/{i}_{cat}.wav'
-    urllib.request.urlretrieve(f'https://github.com/karolpiczak/ESC-50/raw/master/audio/{f}', dst)
-    print('fetched', f, '->', dst)
+paths = []
+for index, name in enumerate(picks):
+    category = next(r['category'] for r in rows if r['filename'] == name)
+    destination = f'/tmp/esc/{index}_{category}.wav'
+    urllib.request.urlretrieve(f'https://github.com/karolpiczak/ESC-50/raw/master/audio/{name}', destination)
+    paths.append(destination)
+    print('fetched', name, '->', destination, round(sf.info(destination).duration, 2), 's')
+
+# Issue #975 reports a 10.14s laughter clip; ESC-50 clips are 5s, so join two.
+first, sr = sf.read(paths[0])
+second, _ = sf.read(paths[1])
+sf.write('/tmp/esc/laugh10s.wav', np.concatenate([first, second]), sr)
+print('made /tmp/esc/laugh10s.wav', round(sf.info('/tmp/esc/laugh10s.wav').duration, 2), 's')
+
+data, sr = sf.read('/tmp/so/tests/data/cough.wav')
+if data.ndim > 1:
+    data = data.mean(axis=1)
+target = int(6.0 * sr)
+sf.write('/tmp/nonspeech6s.wav', np.tile(data, max(1, -(-target // len(data))))[:target], sr)
+print('made /tmp/nonspeech6s.wav 6.0s (looped cough)')
 PY
 
 # DeepGEMM's _C.so dlopens libnvrtc.so.13, which lives inside the pip-installed
@@ -63,11 +87,12 @@ serve() {
 }
 
 wait_ready() {
-  for i in $(seq 1 200); do
+  for i in $(seq 1 120); do
     curl -sf -o /dev/null localhost:8000/health && { echo "server ready after ~$((i*5))s"; return 0; }
+    kill -0 "$(cat /tmp/server.pid)" 2>/dev/null || { echo "SERVER FAILED TO START"; grep -E "Error|error:|Traceback|assert" "/tmp/server_$1.log" | tail -12; return 1; }
     sleep 5
   done
-  echo "SERVER FAILED TO START"; tail -40 "/tmp/server_$1.log"; return 1
+  echo "SERVER FAILED TO START (timeout)"; tail -20 "/tmp/server_$1.log"; return 1
 }
 
 stop_server() {
@@ -76,26 +101,27 @@ stop_server() {
 }
 
 bench() {  # $1 = label
-  for f in /tmp/nonspeech6s.wav /tmp/so/tests/data/cough.wav /tmp/so/tests/data/query_to_cars.wav /tmp/esc/*.wav; do
+  for f in /tmp/esc/laugh10s.wav /tmp/esc/*_*.wav /tmp/nonspeech6s.wav /tmp/so/tests/data/cough.wav /tmp/so/tests/data/query_to_cars.wav; do
     for i in 1 2 3; do
       T=$(curl -s -o /tmp/resp.json -w '%{time_total}' -X POST localhost:8000/v1/audio/transcriptions \
         -F model=OpenMOSS-Team/MOSS-Transcribe-Diarize -F "file=@$f" -F response_format=json)
-      TXT=$(python3 -c "import json;t=json.load(open('/tmp/resp.json')).get('text','');print(f'chars={len(t)} | '+t[:60].replace(chr(10),' '))" 2>/dev/null || head -c 60 /tmp/resp.json)
+      TXT=$(python3 -c "import json;t=json.load(open('/tmp/resp.json')).get('text','');print(f'chars={len(t)} | '+t[:70].replace(chr(10),' '))" 2>/dev/null || head -c 70 /tmp/resp.json)
       echo "RESULT | $1 | $(basename "$f") | run$i | ${T}s | ${TXT}"
     done
   done
 }
 
-echo "== BASELINE 0.1.3 =="
+echo "== BASELINE main@${BASE_SHA:0:7} =="
 serve baseline
 if ! wait_ready baseline; then echo "ABORT: baseline server failed"; exit 1; fi
-bench "baseline-0.1.3"
+bench "main@${BASE_SHA:0:7}"
 stop_server
 
-echo "== install PR #1840 branch =="
-pip install -q --no-deps --force-reinstall "git+https://github.com/ruiling-smartbear/sglang-omni.git@fix/moss-td-short-audio-token-budget" 2>&1 | tail -2
-python3 -c "import sglang_omni.models.moss_transcribe_diarize.request_builders as r;print('PR floor constant present:', hasattr(r,'_MIN_SCALED_OUTPUT_TOKENS'))"
+echo "== install PR #1840 branch (no dependency changes) =="
+pip install -q --no-deps --force-reinstall "$PR_PKG" 2>&1 | tail -2
 pip install -q -U typer 2>&1 | tail -1
+versions pr1840
+python3 -c "import sglang_omni.models.moss_transcribe_diarize.request_builders as r;print('PR floor constant present:', hasattr(r,'_MIN_SCALED_OUTPUT_TOKENS'))"
 
 echo "== FIXED PR#1840 =="
 serve fixed
