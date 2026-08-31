@@ -76,23 +76,24 @@ PY
 # nvidia wheels rather than on the system loader path; expose those dirs and
 # skip DeepGEMM JIT anyway (not needed for a bf16 0.9B model).
 export SGL_ENABLE_JIT_DEEPGEMM=0
+export SGLANG_ENABLE_JIT_DEEPGEMM=0
 NVIDIA_LIBS=$(python3 -c "import glob;print(':'.join(sorted(set(glob.glob('/usr/local/lib/python3.*/site-packages/nvidia/*/lib')))))")
 export LD_LIBRARY_PATH="${NVIDIA_LIBS}:${LD_LIBRARY_PATH:-}"
 python3 -c "import ctypes,glob;f=glob.glob('/usr/local/lib/python3.*/site-packages/nvidia/*/lib/libnvrtc.so.13');print('libnvrtc.so.13 found:',bool(f));f and ctypes.CDLL(f[0])" || pip install -q "nvidia-cuda-nvrtc-cu13" 2>&1 | tail -1
 
 serve() {
   nohup sgl-omni serve --model-path OpenMOSS-Team/MOSS-Transcribe-Diarize \
-    --port 8000 --mem-fraction-static 0.80 --torch-compile off > "/tmp/server_$1.log" 2>&1 &
+    --port 8000 --mem-fraction-static 0.80 --asr.engine.enable_torch_compile false > "/tmp/server_$1.log" 2>&1 &
   echo $! > /tmp/server.pid
 }
 
 wait_ready() {
   for i in $(seq 1 120); do
     curl -sf -o /dev/null localhost:8000/health && { echo "server ready after ~$((i*5))s"; return 0; }
-    kill -0 "$(cat /tmp/server.pid)" 2>/dev/null || { echo "SERVER FAILED TO START"; grep -E "Error|error:|Traceback|assert" "/tmp/server_$1.log" | tail -12; return 1; }
+    kill -0 "$(cat /tmp/server.pid)" 2>/dev/null || { echo "== SERVER FAILED TO START"; tail -25 "/tmp/server_$1.log" | sed "s/^/== /"; return 1; }
     sleep 5
   done
-  echo "SERVER FAILED TO START (timeout)"; tail -20 "/tmp/server_$1.log"; return 1
+  echo "== SERVER FAILED TO START (timeout)"; tail -25 "/tmp/server_$1.log" | sed "s/^/== /"; return 1
 }
 
 stop_server() {
