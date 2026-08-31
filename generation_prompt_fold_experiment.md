@@ -336,6 +336,23 @@ DeepSeek-V4 (`deepseek.py`) overrides `tokenize_non_assistant_incremental_messag
 entirely and renders the appended run with its own encoder; #7628 does not touch
 that file.
 
+### The fix, checked
+
+`DeepSeekContinuousTokenBuilder._synthetic_assistant_for_tools` now carries the
+synthetic arguments as the JSON string `"{}"` (branch
+[`fix/deepseek-synthetic-tool-arguments`](https://github.com/ruiling-smartbear/verl/tree/fix/deepseek-synthetic-tool-arguments)).
+Same harness, upstream main 3dab856 against main with that patch applied:
+[`verl_deepseek_fix_check.py`](https://github.com/ruiling-smartbear/sglang-omni/blob/bench/975/verl_deepseek_fix_check.py),
+raw output [`verl_deepseek_fix_check_results.txt`](https://github.com/ruiling-smartbear/sglang-omni/blob/bench/975/verl_deepseek_fix_check_results.txt).
+
+| model | harness `arguments` | main | main + fix | fix == full-history diff |
+|---|---|---|---|---|
+| DeepSeek-V3 | dict, json | 24/24 render | 24/24, identical to main | 8/24³ |
+| DeepSeek-R1 | dict, json | 0/24 (`TypeError`) | 24/24 render | 8/24³ (json) |
+| DeepSeek-V3.1 | dict, json | 0/24 | 24/24 | 24/24 (json) |
+| DeepSeek-V3.2-Exp | dict, json | 0/24 | 24/24 | 24/24 (json) |
+| every other row of the table above | dict | – | 24/24 identical to main | unchanged |
+
 ## Appendix — the earlier, API-shaped matrix
 
 ### What was compared (earlier run)
