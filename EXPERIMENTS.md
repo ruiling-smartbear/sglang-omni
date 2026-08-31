@@ -48,3 +48,17 @@ stack, 13 clips × 3 requests. 11 clips byte-identical at the same latency; the 
 where the model loops on repeated `[t][t][S01]` markers are capped at 128 tokens
 (1.8× and 2.6× faster). Table posted on
 [#1840](https://github.com/sgl-project/sglang-omni/pull/1840#issuecomment-5473412278).
+
+`bench_1814.sh` (1× H100): the two `movies800time` validation clips that #1814
+excluded for runaway generation. Both have an empty reference transcription; on
+main they decode to the 5120-token default (~5.7K chars, ~8.1 s each), with the PR
+they stop at 128 tokens in 0.2 s — the 40× case from #975. Posted on
+[#1840](https://github.com/sgl-project/sglang-omni/pull/1840#issuecomment-5473802495)
+and [#1814](https://github.com/sgl-project/sglang-omni/issues/1814#issuecomment-5473802643).
+
+## sglang-omni #1845 — typer floor
+
+`typer_probe.py` is not in this branch; the reproduction was a `Literal` option in a
+one-file typer app against typer 0.9.4 / 0.12.5 / 0.15.4 / 0.16.1 / 0.17.5 / 0.18.0
+(all raise `Type not yet supported: typing.Literal[...]`) and 0.19.0 / 0.19.2 /
+0.27.2 (all parse).
