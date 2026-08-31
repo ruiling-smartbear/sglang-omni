@@ -29,6 +29,21 @@ sf.write('/tmp/nonspeech6s.wav', np.tile(d, reps)[:target], sr)
 print('made /tmp/nonspeech6s.wav: 6.0s at', sr, 'Hz (looped cough = non-speech)')
 PY
 
+echo "== fetch ESC-50 non-speech clips (laughing x3, crying_baby, sneezing) =="
+curl -sL https://raw.githubusercontent.com/karolpiczak/ESC-50/master/meta/esc50.csv -o /tmp/esc50.csv
+python3 - <<'PY'
+import csv, os, urllib.request
+rows = list(csv.DictReader(open('/tmp/esc50.csv')))
+def pick(cat, n): return [r['filename'] for r in rows if r['category'] == cat][:n]
+picks = pick('laughing', 3) + pick('crying_baby', 1) + pick('sneezing', 1)
+os.makedirs('/tmp/esc', exist_ok=True)
+for i, f in enumerate(picks):
+    cat = next(r['category'] for r in rows if r['filename'] == f)
+    dst = f'/tmp/esc/{i}_{cat}.wav'
+    urllib.request.urlretrieve(f'https://github.com/karolpiczak/ESC-50/raw/master/audio/{f}', dst)
+    print('fetched', f, '->', dst)
+PY
+
 # DeepGEMM's _C.so dlopens libnvrtc.so.13, which lives inside the pip-installed
 # nvidia wheels rather than on the system loader path; expose those dirs and
 # skip DeepGEMM JIT anyway (not needed for a bf16 0.9B model).
@@ -57,11 +72,11 @@ stop_server() {
 }
 
 bench() {  # $1 = label
-  for f in /tmp/nonspeech6s.wav /tmp/so/tests/data/cough.wav /tmp/so/tests/data/query_to_cars.wav; do
+  for f in /tmp/nonspeech6s.wav /tmp/so/tests/data/cough.wav /tmp/so/tests/data/query_to_cars.wav /tmp/esc/*.wav; do
     for i in 1 2 3; do
       T=$(curl -s -o /tmp/resp.json -w '%{time_total}' -X POST localhost:8000/v1/audio/transcriptions \
         -F model=OpenMOSS-Team/MOSS-Transcribe-Diarize -F "file=@$f" -F response_format=json)
-      TXT=$(python3 -c "import json;print(json.load(open('/tmp/resp.json')).get('text','')[:60].replace(chr(10),' '))" 2>/dev/null || head -c 60 /tmp/resp.json)
+      TXT=$(python3 -c "import json;t=json.load(open('/tmp/resp.json')).get('text','');print(f'chars={len(t)} | '+t[:60].replace(chr(10),' '))" 2>/dev/null || head -c 60 /tmp/resp.json)
       echo "RESULT | $1 | $(basename "$f") | run$i | ${T}s | ${TXT}"
     done
   done
