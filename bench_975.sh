@@ -18,7 +18,7 @@ def v(name):
         return m.version(name)
     except Exception:
         return "missing"
-print(f"VERSIONS | {sys.argv[1]} | sglang-omni={v('sglang-omni')} sglang={v('sglang')} torch={v('torch')}")
+print(f"== VERSIONS | {sys.argv[1]} | sglang-omni={v('sglang-omni')} sglang={v('sglang')} torch={v('torch')}")
 PY
 }
 
@@ -56,13 +56,13 @@ for index, name in enumerate(picks):
     destination = f'/tmp/esc/{index}_{category}.wav'
     urllib.request.urlretrieve(f'https://github.com/karolpiczak/ESC-50/raw/master/audio/{name}', destination)
     paths.append(destination)
-    print('fetched', name, '->', destination, round(sf.info(destination).duration, 2), 's')
+    print('== fetched', name, '->', destination, round(sf.info(destination).duration, 2), 's')
 
 # Issue #975 reports a 10.14s laughter clip; ESC-50 clips are 5s, so join two.
 first, sr = sf.read(paths[0])
 second, _ = sf.read(paths[1])
 sf.write('/tmp/esc/laugh10s.wav', np.concatenate([first, second]), sr)
-print('made /tmp/esc/laugh10s.wav', round(sf.info('/tmp/esc/laugh10s.wav').duration, 2), 's')
+print('== made /tmp/esc/laugh10s.wav', round(sf.info('/tmp/esc/laugh10s.wav').duration, 2), 's')
 
 data, sr = sf.read('/tmp/so/tests/data/cough.wav')
 if data.ndim > 1:
