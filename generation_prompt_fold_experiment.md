@@ -9,7 +9,7 @@ prompt`?
 
 **Answer.** Yes. On the trajectories `tool_agent_loop` actually produces, the folded
 render gives exactly the token ids of today's path on every template that renders
-them — 216 cases across 9 templates, 0 differences — and, wherever the naive
+them — 192 cases over 8 rows (7 distinct templates, plus Qwen3-8B through the base builder), 0 differences — and, wherever the naive
 full-history diff is available as an independent reference, both agree with it too.
 Gemma 4, whose generation prompt depends on what the previous message was, is
 reproduced as well. The only mismatches are gpt-oss tool groups, which never go
@@ -188,7 +188,6 @@ Three quantities per case:
 | gemma4 | google/gemma-4-12b-it | yes | 24/24 | 24/24 | 24/24 |
 | gptoss | gpt-oss-20b | no | 0/24² | 0/24² | 0/24² |
 | deepseek | DeepSeek-V3.2-Exp | no | –³ | –³ | –³ |
-| default | SmolLM3-3B | yes | 24/24 | 24/24 | 24/24 |
 | default | Qwen3-8B via the base builder | yes | 24/24 | n/a¹ | n/a¹ |
 
 ¹ Qwen3-8B's template re-renders earlier assistant turns when a message is

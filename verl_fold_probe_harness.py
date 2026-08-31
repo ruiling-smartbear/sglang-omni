@@ -23,11 +23,10 @@ FAMILY_MODELS = [
     ("qwen35", ["Qwen/Qwen3.5-9B"]),
     ("minimaxm2", ["MiniMaxAI/MiniMax-M2"]),
     ("glm47", ["zai-org/GLM-4.7"]),
-    # Gemma 4's tokenizer_config needs transformers >= 5 to load (extra_special_tokens is a list).
-    ("gemma4", ["google/gemma-4-12b-it", "unsloth/gemma-4-12b-it"]),
+    ("gemma4", ["google/gemma-4-27b-it", "unsloth/gemma-4-27b-it", "unsloth/gemma-4-12b-it", "unsloth/gemma-4-4b-it",
+                "google/gemma-4-12b-it", "unsloth/gemma-3-27b-it"]),
     ("gptoss", ["openai/gpt-oss-20b"]),
     ("deepseek", ["deepseek-ai/DeepSeek-V3.2-Exp", "deepseek-ai/DeepSeek-V3"]),
-    ("default", ["HuggingFaceTB/SmolLM3-3B"]),
     ("default", ["Qwen/Qwen3-8B"]),
 ]
 
@@ -203,8 +202,8 @@ def main() -> int:
                 f"[FOLD] {family:<10} {model:<30} thinking_switch={data.get('template_has_thinking_switch')} "
                 f"same={same}/{len(cases)} differ={len(differ)} not_rendered={len(errors)}{truth_note}"
             )
-            for c in differ[:2]:
-                print(f"[DIFF] {family} kwargs={c['kwargs']} system={c['system_prompt']} prior={c['prior_turns']} append={c['append']} (showing 2 of {len(differ)})")
+            for c in differ:
+                print(f"[DIFF] {family} kwargs={c['kwargs']} system={c['system_prompt']} prior={c['prior_turns']} append={c['append']}")
                 print(f"[DIFF]    current: {c['current_text'][-160:]!r}")
                 print(f"[DIFF]    folded : {c['folded_text'][-160:]!r}")
                 if "truth_text" in c:
