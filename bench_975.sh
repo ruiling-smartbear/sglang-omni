@@ -29,14 +29,22 @@ sf.write('/tmp/nonspeech6s.wav', np.tile(d, reps)[:target], sr)
 print('made /tmp/nonspeech6s.wav: 6.0s at', sr, 'Hz (looped cough = non-speech)')
 PY
 
+# DeepGEMM's _C.so dlopens libnvrtc.so.13, which lives inside the pip-installed
+# nvidia wheels rather than on the system loader path; expose those dirs and
+# skip DeepGEMM JIT anyway (not needed for a bf16 0.9B model).
+export SGL_ENABLE_JIT_DEEPGEMM=0
+NVIDIA_LIBS=$(python3 -c "import glob;print(':'.join(sorted(set(glob.glob('/usr/local/lib/python3.*/site-packages/nvidia/*/lib')))))")
+export LD_LIBRARY_PATH="${NVIDIA_LIBS}:${LD_LIBRARY_PATH:-}"
+python3 -c "import ctypes,glob;f=glob.glob('/usr/local/lib/python3.*/site-packages/nvidia/*/lib/libnvrtc.so.13');print('libnvrtc.so.13 found:',bool(f));f and ctypes.CDLL(f[0])" || pip install -q "nvidia-cuda-nvrtc-cu13" 2>&1 | tail -1
+
 serve() {
   nohup sgl-omni serve --model-path OpenMOSS-Team/MOSS-Transcribe-Diarize \
-    --port 8000 --mem-fraction-static 0.80 > "/tmp/server_$1.log" 2>&1 &
+    --port 8000 --mem-fraction-static 0.80 --torch-compile off > "/tmp/server_$1.log" 2>&1 &
   echo $! > /tmp/server.pid
 }
 
 wait_ready() {
-  for i in $(seq 1 150); do
+  for i in $(seq 1 200); do
     curl -sf -o /dev/null localhost:8000/health && { echo "server ready after ~$((i*5))s"; return 0; }
     sleep 5
   done
