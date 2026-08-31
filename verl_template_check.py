@@ -134,14 +134,23 @@ def main() -> int:
             print(f"[ERROR] {model}: runner exited {exc.returncode}")
             continue
         matrix_ok = 0
+        same_error = 0
         for key, want in base["matrix"].items():
             got = pr["matrix"].get(key)
-            if got == want and not str(want).startswith("ERROR"):
-                matrix_ok += 1
-            else:
+            if got != want:
                 failures += 1
                 print(f"[MISMATCH] {model} {key} main={want} pr={got}")
-        print(f"[CHECK] {model} generation-prompt delta identical in {matrix_ok}/{len(base['matrix'])} scenarios")
+            elif str(want).startswith("ERROR"):
+                # The template refuses this history on both sides, identically:
+                # same behaviour, so it is not a regression.
+                same_error += 1
+            else:
+                matrix_ok += 1
+        note = f" (+{same_error} refused by the template on both sides)" if same_error else ""
+        print(
+            f"[CHECK] {model} generation-prompt delta identical in "
+            f"{matrix_ok}/{len(base['matrix']) - same_error} rendered scenarios{note}"
+        )
         for turns_key, b in base["bench"].items():
             p = pr["bench"][turns_key]
             same = b["ids"] == p["ids"]
