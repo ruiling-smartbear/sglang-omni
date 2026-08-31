@@ -1,3 +1,11 @@
+> **Superseded.** This was the first pass and two of its conclusions were too strong:
+> DeepSeek-V3.2-Exp and gpt-oss are *not* counter-examples to rendering the generation
+> prompt with the last append group — DeepSeek's role-dependent prompt is reproduced by
+> that render (the dependence only rules out one cached id per model), and the gpt-oss
+> difference is its hand-built tool path, not the template. The measurement that answers
+> the question as asked is [`generation_prompt_fold_experiment.md`](generation_prompt_fold_experiment.md).
+> The template-reading table and the gpt-oss decoded diff below are still accurate.
+
 # Does the generation prompt need the full history? — experiment for verl #7617
 
 **Question.** In `tokenize_non_assistant_incremental_messages`, the tokens added by
