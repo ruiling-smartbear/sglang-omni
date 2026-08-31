@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 UPSTREAM_REPO = "https://github.com/verl-project/verl"
-BEFORE_SHA = "8e4a572"  # main before #7628
+BEFORE_SHA = "8e4a572980c4e9a894dc5bb2fd4976652207bdaa"  # main before #7628 (8e4a572)
 # (builder family, Hub candidates, tool-call argument encodings to try)
 FAMILY_MODELS = [
     ("qwen", ["Qwen/Qwen2-7B-Instruct"], ["dict"]),
