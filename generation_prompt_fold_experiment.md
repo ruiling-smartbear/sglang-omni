@@ -1,6 +1,6 @@
 # Folding the generation prompt into the last append group — verl #7617
 
-> Moved: the maintained copy of these experiments now lives at https://github.com/ruiling-smartbear/oss-experiments (`verl/` and `sglang-omni/`). This branch stays as it was so existing links keep working.
+> Moved: the maintained copies now live at https://github.com/ruiling-smartbear/verl-experiments (verl) and https://github.com/ruiling-smartbear/sglang-omni-experiments (sglang-omni). This branch stays as it was so existing links keep working.
 
 **Question.** `tokenize_non_assistant_incremental_messages` renders every append
 group against a bounded synthetic prefix, then renders the *full* history twice

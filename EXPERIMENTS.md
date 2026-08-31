@@ -1,6 +1,6 @@
 # Experiments behind verl #7617 / #7619 and sglang-omni #1840
 
-> Moved: the maintained copy of these experiments now lives at https://github.com/ruiling-smartbear/oss-experiments (`verl/` and `sglang-omni/`). This branch stays as it was so existing links keep working.
+> Moved: the maintained copies now live at https://github.com/ruiling-smartbear/verl-experiments (verl) and https://github.com/ruiling-smartbear/sglang-omni-experiments (sglang-omni). This branch stays as it was so existing links keep working.
 
 Everything here ran on tokenizer files only (no weights) unless marked GPU. Scripts
 clone the repositories they compare, so each one is reproducible on its own.
