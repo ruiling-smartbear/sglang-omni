@@ -16,6 +16,9 @@ reproduced as well. The only mismatches are gpt-oss tool groups, which never go
 through the chat template (`GptOssContinuousTokenBuilder._tokenize_tool_group`
 builds the string by hand), so there is nothing for the flag to act on.
 
+Update: #7628 merged this fold; the merge commit was checked against its parent in
+[After the merge](#after-the-merge--7628-vs-its-parent) below.
+
 Script: [`verl_fold_probe_harness.py`](https://github.com/ruiling-smartbear/sglang-omni/blob/bench/975/verl_fold_probe_harness.py)
 (upstream main @8e4a572, transformers 5.16.1 — Gemma 4's tokenizer needs ≥ 5 to
 load — tokenizer files only, CPU). An earlier variant,
@@ -248,6 +251,90 @@ reproduces it, and the full-history render agrees: 24/24 on all three columns.
 4. Two pre-existing issues surfaced along the way and are worth their own reports:
    the DeepSeek `arguments: {}` shape above, and gpt-oss tool content being written
    raw by `_format_tool_response` while the template JSON-encodes it.
+
+## After the merge — #7628 vs its parent
+
+gxlvera's [#7628](https://github.com/verl-project/verl/pull/7628) implements the
+fold (`_should_fuse_generation_prompt_with_last_group`, base builder `True`,
+gpt-oss and Gemma 4 opt out and keep their separate paths). It was merged as
+3dab856. This run compares that commit with its parent 8e4a572 through the public
+API only — no monkeypatching — on the same trajectories as above: token ids of
+`tokenize_non_assistant_incremental_messages(previous, previous + last tool group,
+tools=TOOLS)`, 24 cases per row. Where the naive full-history suffix diff renders,
+it is kept as an independent reference column.
+
+Script: [`verl_fused_check.py`](https://github.com/ruiling-smartbear/sglang-omni/blob/bench/975/verl_fused_check.py),
+raw output: [`verl_fused_check_results.txt`](https://github.com/ruiling-smartbear/sglang-omni/blob/bench/975/verl_fused_check_results.txt)
+(transformers 5.16.1 in a bare venv, only the `verl.utils.tokenizer` package of
+each checkout imported, CPU).
+
+| builder | model | after == before | before == full-history diff | after == full-history diff |
+|---|---|---|---|---|
+| qwen | Qwen2-7B-Instruct | 24/24 | 24/24 | 24/24 |
+| qwen25 | Qwen2.5-7B-Instruct | 24/24 | 24/24 | 24/24 |
+| qwen3 | Qwen3-8B | 24/24 | n/a¹ | n/a¹ |
+| qwen35 | Qwen3.5-9B | 24/24 | 24/24 | 24/24 |
+| minimaxm2 | MiniMax-M2 | 24/24 | 24/24 | 24/24 |
+| glm47 | GLM-4.7 | 24/24 | 24/24 | 24/24 |
+| gemma4 | gemma-4-12b-it | 24/24 (opted out: same code path on both sides) | 24/24 | 24/24 |
+| gptoss | gpt-oss-20b | 24/24 (opted out) | 0/24² | 0/24² |
+| default | Qwen3-8B via the base builder | 24/24 | n/a¹ | n/a¹ |
+
+¹ ² as in the table above.
+
+### DeepSeek
+
+DeepSeek-V3, R1, V3.1 and V3.2-Exp all have `model_type: deepseek_v3` and resolve
+to `DeepSeekContinuousTokenBuilder`, which only overrides the merge step, so they
+take the base fused path. Four variants per model: harness tool-call `arguments`
+as a dict (what `OpenAIFunctionCallSchema.model_dump()` gives `tool_agent_loop`)
+or as a JSON string, and with or without `_synthetic_assistant_for_tools`
+patched to emit `"arguments": "{}"` instead of `{}` (`+strsyn`).
+
+| model | variant | before renders | after renders | after == before | full-history diff |
+|---|---|---|---|---|---|
+| DeepSeek-V3 | dict / json / dict+strsyn / json+strsyn | 24/24 | 24/24 | 24/24 | 8/24 both sides³ |
+| DeepSeek-R1 | dict, json | 0/24 (`TypeError`)⁴ | 0/24 (`TypeError`)⁴ | – | – |
+| DeepSeek-R1 | dict+strsyn | 0/24 | 24/24 | – | – |
+| DeepSeek-R1 | json+strsyn | 24/24 | 24/24 | 24/24 | 8/24 both sides³ |
+| DeepSeek-V3.1 | dict, json | 0/24⁴ | 0/24⁴ | – | – |
+| DeepSeek-V3.1 | dict+strsyn | 0/24 | 24/24 | – | – |
+| DeepSeek-V3.1 | json+strsyn | 24/24 | 24/24 | 24/24 | 24/24 both sides |
+| DeepSeek-V3.2-Exp | dict, json | 0/24⁴ | 0/24⁴ | – | – |
+| DeepSeek-V3.2-Exp | dict+strsyn | 0/24 | 24/24 | – | – |
+| DeepSeek-V3.2-Exp | json+strsyn | 24/24 | 24/24 | 24/24 | 24/24 both sides |
+
+What the rows say:
+
+- The fold itself changes nothing for this family. All four templates guard the
+  generation prompt with `add_generation_prompt and not ns.is_tool`, so after a
+  tool message neither the old full-history render nor the fused render adds
+  `<｜Assistant｜>`; the appended ids end at `<｜tool▁outputs▁end｜>` (V3 / R1) or
+  `<｜tool▁output▁end｜>` (V3.1 / V3.2-Exp). Every case that renders is identical
+  before and after.
+- ⁴ R1, V3.1 and V3.2-Exp render `tool_calls` whenever the key is present and
+  concatenate `tool['function']['arguments']` as a string, so verl's synthetic
+  assistant (`"arguments": {}`) raises on every tool append — before and after the
+  merge, i.e. pre-existing. V3 escapes only because its template renders
+  `tool_calls` when `message['content'] is none`, and the synthetic message has
+  `content: ""`, so its tool calls are simply skipped.
+- With the synthetic arguments as the string `"{}"` the fused path renders on all
+  four. Before the merge that was not enough: the two full-history renders also hit
+  the harness's own assistant messages, whose dict `arguments` fail the same way
+  (`dict+strsyn`: before 0/24, after 24/24). After the merge the history is never
+  re-rendered on a tool append, so the harness's argument format stops mattering.
+  That makes the family fixable with a one-line override in
+  `DeepSeekContinuousTokenBuilder`.
+- ³ V3 and R1 keep a conversation-global `is_output_first` flag: the first tool
+  output of the whole conversation gets `<｜tool▁outputs▁begin｜><｜tool▁output▁begin｜>`,
+  every later one `\n<｜tool▁output▁begin｜>`. The bounded synthetic-prefix render
+  always produces the first form, so it agrees with the full-history render only
+  on the 8 cases with no prior tool turns. Same before and after; unrelated to the
+  fold, but worth knowing if anyone trains DeepSeek-V3/R1 tool loops this way.
+
+DeepSeek-V4 (`deepseek.py`) overrides `tokenize_non_assistant_incremental_messages`
+entirely and renders the appended run with its own encoder; #7628 does not touch
+that file.
 
 ## Appendix — the earlier, API-shaped matrix
 
