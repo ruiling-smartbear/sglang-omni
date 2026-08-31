@@ -35,7 +35,9 @@ FAMILY_MODELS = [
     ("gptoss", ["openai/gpt-oss-20b"]),
     ("deepseek", ["deepseek-ai/DeepSeek-V3.2-Exp", "deepseek-ai/DeepSeek-V3.1", "deepseek-ai/DeepSeek-V3"]),
     ("deepseekv4", ["deepseek-ai/DeepSeek-V4"]),
-    ("default", ["Qwen/Qwen3-8B", "mistralai/Mistral-7B-Instruct-v0.3"]),
+    ("default", ["Qwen/Qwen3-8B"]),
+    ("default", ["mistralai/Mistral-7B-Instruct-v0.3", "microsoft/Phi-4-mini-instruct"]),
+    ("default", ["HuggingFaceTB/SmolLM3-3B"]),
 ]
 
 RUNNER = r'''
@@ -124,18 +126,35 @@ result["template_snippet"] = snippet
 result["template_looks_history_dependent"] = history_dependent
 
 # Some templates want tool-call arguments as a mapping, others as a JSON string.
+attempts = {}
 for arg_form in ("dict", "json"):
     try:
         probe_builder = builder_cls(tok)
         messages, appended = history(0, arg_form, "tool")
         probe_builder.render_delta_token_id(messages, appended, add_generation_prompt=True, tools=TOOLS)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        attempts[arg_form] = f"{type(exc).__name__}: {str(exc)[:90]}"
         continue
     result["arg_form"] = arg_form
     break
 
 if result["arg_form"] is None:
-    result["error"] = "no tool-call argument encoding renders with this template"
+    # The full-history render is not prefix stable here; still measure the two
+    # incremental paths against each other with whichever encoding renders the
+    # append group at all.
+    result["truth_error"] = attempts
+    for arg_form in ("dict", "json"):
+        try:
+            probe_builder = builder_cls(tok)
+            previous, appended = history(0, arg_form, "tool")
+            probe_builder.tokenize_non_assistant_incremental_messages(previous, previous + appended, tools=TOOLS)
+        except Exception:  # noqa: BLE001
+            continue
+        result["arg_form"] = arg_form
+        break
+
+if result["arg_form"] is None:
+    result["error"] = f"no tool-call argument encoding renders with this template: {attempts}"
 else:
     for tools in (None, TOOLS):
         for prior_turns in (0, 10):
@@ -145,18 +164,27 @@ else:
                     "prior_turns": prior_turns,
                     "append_role": append_role,
                 }
-                try:
-                    previous, appended = history(prior_turns, result["arg_form"], append_role)
-                    updated = previous + appended
-                    builder = builder_cls(tok)
-                    truth = builder.render_delta_token_id(previous, appended, add_generation_prompt=True, tools=tools)
-                    current = builder.tokenize_non_assistant_incremental_messages(previous, updated, tools=tools)
-                    folded = folded_incremental(builder_cls(tok), previous, updated, tools)
-                    case["current_matches_truth"] = current == truth
-                    case["folded_matches_truth"] = folded == truth
-                    case["folded_matches_current"] = folded == current
-                except Exception as exc:  # noqa: BLE001
-                    case["error"] = f"{type(exc).__name__}: {str(exc)[:100]}"
+                previous, appended = history(prior_turns, result["arg_form"], append_role)
+                updated = previous + appended
+                builder = builder_cls(tok)
+                values = {}
+                for name, thunk in (
+                    ("truth", lambda: builder.render_delta_token_id(
+                        previous, appended, add_generation_prompt=True, tools=tools)),
+                    ("current", lambda: builder.tokenize_non_assistant_incremental_messages(
+                        previous, updated, tools=tools)),
+                    ("folded", lambda: folded_incremental(builder_cls(tok), previous, updated, tools)),
+                ):
+                    try:
+                        values[name] = thunk()
+                    except Exception as exc:  # noqa: BLE001
+                        case[f"{name}_error"] = f"{type(exc).__name__}: {str(exc)[:90]}"
+                if "truth" in values and "current" in values:
+                    case["current_matches_truth"] = values["current"] == values["truth"]
+                if "truth" in values and "folded" in values:
+                    case["folded_matches_truth"] = values["folded"] == values["truth"]
+                if "current" in values and "folded" in values:
+                    case["folded_matches_current"] = values["folded"] == values["current"]
                 try:
                     generation_prompt = builder._tokenize_generation_prompt_delta(updated, tools=tools)
                     case["generation_prompt_text"] = tok.decode(generation_prompt)
@@ -195,21 +223,23 @@ def main() -> int:
                 data = json.load(fh)
             if data.get("error"):
                 print(f"[skip] {family} {model}: {data['error']}")
-                break
+                continue
+            if data.get("truth_error"):
+                print(f"[NOTE] {family} {model}: full-history render is not prefix stable here: {data['truth_error']}")
             print(
                 f"[MODEL] {family} {model} arg_form={data['arg_form']} "
                 f"template_looks_history_dependent={data['template_looks_history_dependent']}"
             )
             for case in data["cases"]:
                 label = f"tools={case['tools']} prior_turns={case['prior_turns']} append={case['append_role']}"
-                if "error" in case:
-                    print(f"[PROBE] {family:<10} {label:<48} error={case['error']}")
-                    continue
+                errors = {k[: -len("_error")]: v for k, v in case.items() if k.endswith("_error")}
                 print(
                     f"[PROBE] {family:<10} {label:<48} "
-                    f"current==truth={case['current_matches_truth']} "
-                    f"folded==truth={case['folded_matches_truth']} "
+                    f"current==truth={case.get('current_matches_truth')} "
+                    f"folded==truth={case.get('folded_matches_truth')} "
+                    f"folded==current={case.get('folded_matches_current')} "
                     f"gen_prompt={case.get('generation_prompt_text')!r}"
+                    + (f" errors={errors}" if errors else "")
                 )
             if data.get("template_snippet"):
                 snippet = " ".join(data["template_snippet"].split())
