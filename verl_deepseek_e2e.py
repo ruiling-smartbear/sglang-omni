@@ -23,7 +23,8 @@ parser.add_argument("--verl", required=True, help="path to a verl checkout")
 parser.add_argument("--model", default="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B")
 parser.add_argument("--server", default="http://127.0.0.1:30000")
 parser.add_argument("--label", default="")
-parser.add_argument("--max-new-tokens", type=int, default=900)
+parser.add_argument("--max-new-tokens", type=int, default=2500)
+parser.add_argument("--nothink", action="store_true", help="prefill an empty think block on the first turn")
 args = parser.parse_args()
 
 for name, sub in (
@@ -66,8 +67,10 @@ SYSTEM_PROMPT = (
     "When you have every figure you need, answer the user in one sentence."
 )
 USER_PROMPT = "What are the current populations of Pittsburgh and Cleveland? Use the tool, one city per call."
+# Tolerant of tokenizers whose decode drops the ｜ / ▁ characters of the DeepSeek markers
+# (DeepSeek-R1-0528-Qwen3-8B under transformers 5 does), so the fallback still sees the call.
 CALL_RE = re.compile(
-    r"<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>(\w+)\n```json\n(.*?)\n```<｜tool▁call▁end｜><｜tool▁calls▁end｜>",
+    r"<｜?tool▁?calls▁?begin｜?><｜?tool▁?call▁?begin｜?>function<｜?tool▁?sep｜?>(\w+)\s*```json\s*(.*?)\s*```<｜?tool▁?call▁?end｜?><｜?tool▁?calls▁?end｜?>",
     re.S,
 )
 
@@ -122,15 +125,26 @@ print(f"{tag}verl={args.verl} model={args.model} builder={type(builder).__name__
 def parse_calls(text, ids):
     if verl_parser is not None:
         content, calls = asyncio.run(verl_parser.extract_tool_calls(ids, tools=None))
-        return content, [(call.name, json.loads(call.arguments)) for call in calls if call.name == TOOL_NAME]
+        parsed = []
+        for call in calls:
+            try:
+                parsed.append((call.name, json.loads(call.arguments)))
+            except json.JSONDecodeError:
+                print(f"{tag}dropping a call with invalid JSON arguments: {call.arguments[:80]!r}")
+        if parsed:
+            return content, parsed
     match = CALL_RE.search(text)
     if not match:
         return text, []
+    if verl_parser is not None:
+        print(f"{tag}note: verl's parser saw no call but the tolerant regex did (decode dropped the marker characters)")
     return text[: match.start()], [(match.group(1), json.loads(match.group(2)))]
 
 
 messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": USER_PROMPT}]
 runtime_ids = builder.build_initial_tokens(messages, tools=TOOLS)
+if args.nothink:
+    runtime_ids = runtime_ids + tok.encode("<think>\n\n</think>\n\n", add_special_tokens=False)
 print(f"{tag}prompt: {len(runtime_ids)} tokens, tail {tok.decode(runtime_ids)[-120:]!r}")
 
 forced_turns = []
@@ -185,8 +199,12 @@ for turn in (1, 2, 3):
     appended_texts.append(appended_text)
     # Independent reference: the template's own render of the whole conversation, suffix-diffed.
     try:
-        full = tok.apply_chat_template(with_string_arguments(updated), tokenize=True, add_generation_prompt=True)
-        prefix = tok.apply_chat_template(with_string_arguments(previous), tokenize=True, add_generation_prompt=False)
+        full = tok.apply_chat_template(
+            with_string_arguments(updated), tokenize=True, add_generation_prompt=True, return_dict=False
+        )
+        prefix = tok.apply_chat_template(
+            with_string_arguments(previous), tokenize=True, add_generation_prompt=False, return_dict=False
+        )
         reference = "matches template" if full[len(prefix):] == appended and full[: len(prefix)] == prefix else (
             f"differs from template: {tok.decode(full[len(prefix):])[:120]!r}")
     except Exception as exc:  # noqa: BLE001
