@@ -9,7 +9,11 @@ echo "== GPU =="
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv || true
 
 echo "== install baseline sglang-omni==0.1.3 =="
-pip install -q "sglang-omni==0.1.3" 2>&1 | tail -2
+# Full install only when the stack is missing; afterwards swap just the
+# sglang_omni package with --no-deps so A and B run on identical dependencies.
+python3 -c "import sglang, sglang_omni" 2>/dev/null || pip install -q "sglang-omni==0.1.3" 2>&1 | tail -2
+pip install -q --no-deps --force-reinstall "sglang-omni==0.1.3" 2>&1 | tail -1
+python3 -c "import sglang_omni,importlib.metadata as m;print('sglang-omni', m.version('sglang-omni'))"
 # the package pins typer>=0.9.0, but the sgl-omni CLI uses typing.Literal
 # options that older typer can't parse; make sure a current typer is present.
 pip install -q -U typer 2>&1 | tail -1
@@ -89,7 +93,8 @@ bench "baseline-0.1.3"
 stop_server
 
 echo "== install PR #1840 branch =="
-pip install -q "git+https://github.com/ruiling-smartbear/sglang-omni.git@fix/moss-td-short-audio-token-budget" 2>&1 | tail -2
+pip install -q --no-deps --force-reinstall "git+https://github.com/ruiling-smartbear/sglang-omni.git@fix/moss-td-short-audio-token-budget" 2>&1 | tail -2
+python3 -c "import sglang_omni.models.moss_transcribe_diarize.request_builders as r;print('PR floor constant present:', hasattr(r,'_MIN_SCALED_OUTPUT_TOKENS'))"
 pip install -q -U typer 2>&1 | tail -1
 
 echo "== FIXED PR#1840 =="
