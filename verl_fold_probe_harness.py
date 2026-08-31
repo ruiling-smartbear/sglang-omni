@@ -203,8 +203,8 @@ def main() -> int:
                 f"[FOLD] {family:<10} {model:<30} thinking_switch={data.get('template_has_thinking_switch')} "
                 f"same={same}/{len(cases)} differ={len(differ)} not_rendered={len(errors)}{truth_note}"
             )
-            for c in differ:
-                print(f"[DIFF] {family} kwargs={c['kwargs']} system={c['system_prompt']} prior={c['prior_turns']} append={c['append']}")
+            for c in differ[:2]:
+                print(f"[DIFF] {family} kwargs={c['kwargs']} system={c['system_prompt']} prior={c['prior_turns']} append={c['append']} (showing 2 of {len(differ)})")
                 print(f"[DIFF]    current: {c['current_text'][-160:]!r}")
                 print(f"[DIFF]    folded : {c['folded_text'][-160:]!r}")
                 if "truth_text" in c:
