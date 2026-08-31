@@ -53,85 +53,34 @@ echo "== fetch the two movies800time samples excluded in #1814 =="
 pip install -q "datasets>=3" 2>&1 | tail -1
 python3 - <<'PY'
 import os
-import numpy as np
+import shutil
 import soundfile as sf
 from datasets import Audio, load_dataset
 from huggingface_hub import hf_hub_download
 
 REPO = "zhaochenyang20/movies800time"
-WANT = {"sample-000237", "sample-000318"}
+WANT = {"val_000237", "val_000318"}  # #1814 calls them sample-000237 / sample-000318
 os.makedirs('/tmp/runaway', exist_ok=True)
 
-
-def save_decoded(name, audio):
-    array = np.asarray(audio["array"], dtype="float32")
-    if array.ndim > 1:
-        array = array.mean(axis=-1)
-    destination = f"/tmp/runaway/{name}.wav"
-    sf.write(destination, array, int(audio["sampling_rate"]))
-    return destination
-
-
-# Pass 1: metadata only, to learn how samples are identified and where the audio lives.
+# Metadata pass: the audio column carries the repo path of each clip and the
+# reference transcription; the bytes themselves are fetched by path below.
 ds = load_dataset(REPO, split="validation", streaming=True).cast_column("audio", Audio(decode=False))
 hits = {}
 for index, row in enumerate(ds):
-    if index == 0:
-        print("== columns:", sorted(row.keys()))
-    audio = row["audio"]
-    path = str(audio.get("path") or "")
+    path = str(row["audio"].get("path") or "")
     stem = os.path.splitext(os.path.basename(path))[0]
-    candidates = {stem, f"sample-{index:06d}"}
-    hit = WANT & candidates
-    if hit:
-        name = sorted(hit)[0]
-        hits[name] = {"index": index, "path": path, "has_bytes": audio.get("bytes") is not None,
-                      "reference": str(row.get("transcription") or "")}
-        if len(hits) == 1:
-            print(f"== first hit: index={index} path={path!r} has_bytes={audio.get('bytes') is not None}")
-        if audio.get("bytes"):
-            ext = os.path.splitext(path)[1] or ".flac"
-            with open(f"/tmp/runaway/{name}{ext}", "wb") as fh:
-                fh.write(audio["bytes"])
+    if stem in WANT:
+        relpath = path.split("::")[0].split("/", 3)[-1] if "@" not in path else path.split("@", 1)[1].split("/", 1)[1]
+        hits[stem] = {"index": index, "relpath": relpath, "reference": str(row.get("transcription") or "")}
     if len(hits) == len(WANT) or index > 900:
         break
-print("== hits:", {k: (v["index"], v["path"][-60:], v["has_bytes"]) for k, v in hits.items()})
-
-# Pass 2: for hits without embedded bytes, decode through datasets, else download by path.
-present = {f.rsplit(".", 1)[0] for f in os.listdir('/tmp/runaway') if os.path.getsize(f"/tmp/runaway/{f}") > 0}
-missing = [n for n in sorted(WANT) if n not in present]
-for f in os.listdir('/tmp/runaway'):
-    if os.path.getsize(f"/tmp/runaway/{f}") == 0:
-        os.remove(f"/tmp/runaway/{f}")
-if missing:
-    decoded = load_dataset(REPO, split="validation", streaming=True)
-    for index, row in enumerate(decoded):
-        stem = os.path.splitext(os.path.basename(str(row["audio"].get("path") or "")))[0]
-        name = next((n for n in missing if n in {stem, f"sample-{index:06d}"}), None)
-        if name:
-            try:
-                destination = save_decoded(name, row["audio"])
-                print(f"== decoded {destination} duration={round(sf.info(destination).duration, 2)}s reference_chars={len(hits.get(name, {}).get('reference', ''))}")
-            except Exception as exc:  # noqa: BLE001
-                print(f"== decode failed for {name}: {type(exc).__name__}: {str(exc)[:120]}")
-                relpath = hits.get(name, {}).get("path", "")
-                relpath = relpath.split("::")[0].replace("hf://datasets/" + REPO + "/", "").lstrip("/")
-                try:
-                    local = hf_hub_download(REPO, filename=relpath, repo_type="dataset")
-                    ext = os.path.splitext(local)[1] or ".flac"
-                    os.replace(local, f"/tmp/runaway/{name}{ext}")
-                    print(f"== downloaded {name}{ext} from {relpath}")
-                except Exception as exc2:  # noqa: BLE001
-                    print(f"== download failed for {name}: {type(exc2).__name__}: {str(exc2)[:120]}")
-            missing.remove(name)
-        if not missing or index > 900:
-            break
-for f in sorted(os.listdir('/tmp/runaway')):
-    p = f"/tmp/runaway/{f}"
-    try:
-        print(f"== clip {f}: {round(sf.info(p).duration, 2)}s, {os.path.getsize(p)} bytes")
-    except Exception as exc:  # noqa: BLE001
-        print(f"== clip {f}: {os.path.getsize(p)} bytes ({type(exc).__name__})")
+for stem, info in sorted(hits.items()):
+    local = hf_hub_download(REPO, filename=info["relpath"], repo_type="dataset")
+    destination = f"/tmp/runaway/{stem}{os.path.splitext(local)[1] or '.flac'}"
+    shutil.copyfile(local, destination)
+    print(f"== {stem}: index={info['index']} {info['relpath']} duration={round(sf.info(destination).duration, 2)}s "
+          f"reference_chars={len(info['reference'])} reference={info['reference'][:80]!r}")
+print("== samples found:", len(hits))
 PY
 ls -la /tmp/runaway/ | sed 's/^/== /'
 
