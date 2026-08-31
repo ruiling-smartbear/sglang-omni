@@ -25,6 +25,7 @@ parser.add_argument("--server", default="http://127.0.0.1:30000")
 parser.add_argument("--label", default="")
 parser.add_argument("--max-new-tokens", type=int, default=2500)
 parser.add_argument("--nothink", action="store_true", help="prefill an empty think block on the first turn")
+parser.add_argument("--tokenizer-class", default="", help="transformers tokenizer class to load instead of Auto")
 args = parser.parse_args()
 
 for name, sub in (
@@ -37,6 +38,7 @@ for name, sub in (
     stub = types.ModuleType(name)
     stub.__path__ = [f"{args.verl}/{sub}"]
     sys.modules[name] = stub
+import transformers  # noqa: E402
 from transformers import AutoTokenizer  # noqa: E402
 from verl.utils.tokenizer.continuous_token_wiring import get_continuous_token_builder_class  # noqa: E402
 
@@ -107,7 +109,8 @@ def with_string_arguments(messages):
 
 
 tag = f"[{args.label}] " if args.label else ""
-tok = AutoTokenizer.from_pretrained(args.model)
+tokenizer_cls = getattr(transformers, args.tokenizer_class) if args.tokenizer_class else AutoTokenizer
+tok = tokenizer_cls.from_pretrained(args.model)
 builder = get_continuous_token_builder_class("deepseek")(tok)
 eos_id = builder._eos_id
 verl_parser = None
@@ -133,9 +136,10 @@ def parse_calls(text, ids):
                 print(f"{tag}dropping a call with invalid JSON arguments: {call.arguments[:80]!r}")
         if parsed:
             return content, parsed
-    match = CALL_RE.search(text)
-    if not match:
+    matches = list(CALL_RE.finditer(text))
+    if not matches:
         return text, []
+    match = matches[-1]  # the model may quote the format from the system prompt while thinking
     if verl_parser is not None:
         print(f"{tag}note: verl's parser saw no call but the tolerant regex did (decode dropped the marker characters)")
     return text[: match.start()], [(match.group(1), json.loads(match.group(2)))]
@@ -155,7 +159,9 @@ for turn in (1, 2, 3):
     out = generate(runtime_ids, args.max_new_tokens)
     text = out["text"]
     ids = out.get("output_ids") or tok.encode(text, add_special_tokens=False)
-    print(f"{tag}turn {turn}: {len(ids)} tokens in {time.time() - t0:.1f}s, finish={out['meta_info'].get('finish_reason')}")
+    print(f"{tag}turn {turn}: {len(ids)} tokens in {time.time() - t0:.1f}s, finish={out['meta_info'].get('finish_reason')}, "
+          f"ids_from={'server' if out.get('output_ids') else 're-encoded text'}")
+    text = tok.decode(ids)  # decode with the driver's tokenizer, not the server's
     print(f"{tag}turn {turn} text tail: {text[-300:]!r}")
     content, calls = parse_calls(text, ids)
     if calls:
