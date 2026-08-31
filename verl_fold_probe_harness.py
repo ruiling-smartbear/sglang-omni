@@ -23,6 +23,8 @@ FAMILY_MODELS = [
     ("qwen35", ["Qwen/Qwen3.5-9B"]),
     ("minimaxm2", ["MiniMaxAI/MiniMax-M2"]),
     ("glm47", ["zai-org/GLM-4.7"]),
+    ("gemma4", ["google/gemma-4-27b-it", "unsloth/gemma-4-27b-it", "unsloth/gemma-4-12b-it", "unsloth/gemma-4-4b-it",
+                "google/gemma-4-12b-it", "unsloth/gemma-3-27b-it"]),
     ("gptoss", ["openai/gpt-oss-20b"]),
     ("deepseek", ["deepseek-ai/DeepSeek-V3.2-Exp", "deepseek-ai/DeepSeek-V3"]),
     ("default", ["HuggingFaceTB/SmolLM3-3B"]),
@@ -113,9 +115,10 @@ tok = AutoTokenizer.from_pretrained(model)
 builder_cls = get_continuous_token_builder_class(family)
 result = {"family": family, "model": model, "cases": [], "arg_form": "dict (as tool_agent_loop passes it)"}
 
-kwargs_variants = [{}]
-if "enable_thinking" in (getattr(tok, "chat_template", "") or ""):
-    kwargs_variants.append({"enable_thinking": False})
+# The same 24 cases for every model. Templates without an enable_thinking switch
+# ignore the kwarg, so their two halves are the same renders; that is reported.
+kwargs_variants = [{}, {"enable_thinking": False}]
+result["template_has_thinking_switch"] = "enable_thinking" in (getattr(tok, "chat_template", "") or "")
 
 for kwargs in kwargs_variants:
     for system_prompt in (True, False):
@@ -132,6 +135,12 @@ for kwargs in kwargs_variants:
                 except Exception as exc:  # noqa: BLE001
                     case["current_error"] = f"{type(exc).__name__}: {str(exc)[:90]}"
                 try:
+                    truth = builder_cls(tok, chat_template_kwargs=dict(kwargs)).render_delta_token_id(
+                        previous, appended, add_generation_prompt=True, tools=TOOLS)
+                except Exception as exc:  # noqa: BLE001
+                    truth = None
+                    case["truth_error"] = f"{type(exc).__name__}: {str(exc)[:90]}"
+                try:
                     folded, calls_made = folded_incremental(
                         builder_cls(tok, chat_template_kwargs=dict(kwargs)), previous, updated, TOOLS, len(groups))
                     case["template_renders"] = calls_made
@@ -139,9 +148,14 @@ for kwargs in kwargs_variants:
                     case["folded_error"] = f"{type(exc).__name__}: {str(exc)[:90]}"
                 if "current_error" not in case and "folded_error" not in case:
                     case["same"] = folded == current
+                    if truth is not None:
+                        case["current_matches_truth"] = current == truth
+                        case["folded_matches_truth"] = folded == truth
                     if not case["same"]:
                         case["current_text"] = tok.decode(current)
                         case["folded_text"] = tok.decode(folded)
+                        if truth is not None:
+                            case["truth_text"] = tok.decode(truth)
                     else:
                         case["text"] = tok.decode(current)
                 result["cases"].append(case)
@@ -179,14 +193,22 @@ def main() -> int:
             differ = [c for c in cases if c.get("same") is False]
             errors = [c for c in cases if "same" not in c]
             texts = sorted({c.get("text", "") for c in cases if c.get("same")})
+            with_truth = [c for c in cases if "current_matches_truth" in c]
+            truth_note = (
+                f" truth: current=={sum(c['current_matches_truth'] for c in with_truth)}/{len(with_truth)} "
+                f"folded=={sum(c['folded_matches_truth'] for c in with_truth)}/{len(with_truth)}"
+                if with_truth else " truth: full-history diff not prefix-stable"
+            )
             print(
-                f"[FOLD] {family:<10} {model:<30} arg_form={data['arg_form']} "
-                f"same={same}/{len(cases)} differ={len(differ)} not_rendered={len(errors)}"
+                f"[FOLD] {family:<10} {model:<30} thinking_switch={data.get('template_has_thinking_switch')} "
+                f"same={same}/{len(cases)} differ={len(differ)} not_rendered={len(errors)}{truth_note}"
             )
             for c in differ:
                 print(f"[DIFF] {family} kwargs={c['kwargs']} system={c['system_prompt']} prior={c['prior_turns']} append={c['append']}")
-                print(f"[DIFF]    current: {c['current_text']!r}")
-                print(f"[DIFF]    folded : {c['folded_text']!r}")
+                print(f"[DIFF]    current: {c['current_text'][-160:]!r}")
+                print(f"[DIFF]    folded : {c['folded_text'][-160:]!r}")
+                if "truth_text" in c:
+                    print(f"[DIFF]    truth  : {c['truth_text'][-160:]!r}")
             seen = set()
             for c in errors:
                 key = (c.get("current_error"), c.get("folded_error"))
