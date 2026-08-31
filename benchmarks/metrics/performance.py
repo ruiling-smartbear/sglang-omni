@@ -20,6 +20,16 @@ Metric semantics:
     Mean request elapsed seconds divided by generated output audio duration seconds.
 ``rtf_p95`` / ``rtf_p99``
     Tail percentiles of per-request RTF.
+``latency_max_s`` / ``rtf_max``
+    Slowest single request. Percentiles hide a lone straggler in a large corpus;
+    a decode that runs to its token budget shows up here first.
+``decode_chars_per_audio_s_mean`` / ``decode_chars_per_audio_s_max``
+    Transcript characters produced per second of input audio. Speech has a
+    bounded transcription rate, so a repetition loop separates from real output
+    by an order of magnitude (#975).
+``runaway_requests`` / ``runaway_scored_requests``
+    Requests whose character rate exceeds the runaway threshold, and how many
+    requests were scorable (those reporting an input audio duration).
 ``audio_throughput_s_per_s``
     Total seconds of generated audio divided by benchmark wall-clock seconds.
     Independent of per-request audio duration; comparable across engines that
@@ -74,6 +84,7 @@ from benchmarks.metrics._format import (
     print_benchmark_dataset_line,
     print_speed_metric_line,
 )
+from benchmarks.metrics.decode_runaway import summarize_decode_runaway
 from benchmarks.metrics.playback_continuity import summarize_playback_continuity
 
 
@@ -176,6 +187,7 @@ def compute_speed_metrics(
         "rtf_p99": round(float(np.percentile(rtfs, 99)), 4) if rtfs else None,
         "throughput_qps": throughput,
         **_compute_token_metrics(successes, wall_clock_s=wall_clock_s),
+        **summarize_decode_runaway(successes),
     }
     if audio_durations and wall_clock_s is not None and wall_clock_s > 0:
         total_audio_s = sum(audio_durations)

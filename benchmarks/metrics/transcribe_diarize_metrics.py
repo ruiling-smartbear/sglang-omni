@@ -238,6 +238,22 @@ def print_diarization_speed_summary(
         f"  {'Audio throughput (s/s):':<{label_width}} "
         f"{_format_decimal(_as_optional_number(speed, 'audio_throughput_s_per_s'), digits=3)}"
     )
+    print(
+        f"  {'Latency max (s) / RTF max:':<{label_width}} "
+        f"{_format_decimal(_as_optional_number(speed, 'latency_max_s'), digits=3)} / "
+        f"{_format_decimal(_as_optional_number(speed, 'rtf_max'), digits=4)}"
+    )
+    print(
+        f"  {'Decode chars/audio-s mean / max:':<{label_width}} "
+        f"{_format_decimal(_as_optional_number(speed, 'decode_chars_per_audio_s_mean'), digits=2)} / "
+        f"{_format_decimal(_as_optional_number(speed, 'decode_chars_per_audio_s_max'), digits=2)}"
+    )
+    runaway = _as_optional_number(speed, "runaway_requests")
+    scored = _as_optional_number(speed, "runaway_scored_requests")
+    print(
+        f"  {'Runaway decodes:':<{label_width}} "
+        f"{'N/A' if runaway is None else f'{int(runaway)} / {int(scored or 0)}'}"
+    )
     if is_stream:
         print(
             f"  {'Text TTFT p95 (s):':<{label_width}} "
