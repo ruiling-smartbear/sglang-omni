@@ -353,6 +353,62 @@ raw output [`verl_deepseek_fix_check_results.txt`](https://github.com/ruiling-sm
 | DeepSeek-V3.2-Exp | dict, json | 0/24 | 24/24 | 24/24 (json) |
 | every other row of the table above | dict | – | 24/24 identical to main | unchanged |
 
+## Follow-ups after #7630 (not yet submitted)
+
+Two more DeepSeek changes, kept as patches in
+[`patches/`](https://github.com/ruiling-smartbear/sglang-omni/tree/bench/975/patches) until they are opened as PRs:
+
+1. **`DeepSeekV3ToolParser`** (`multi_turn.format=deepseek_v3`): verl had no parser for
+   the DeepSeek V3-family call markers, so an agent loop with these models never
+   saw a tool call. Both layouts (V3 / R1 fenced JSON, V3.1 / V3.2 plain), parallel
+   calls, one-section-per-call outputs, invalid JSON kept verbatim. 8 CPU tests.
+2. **Tool outputs after the first tool turn**: the V3 / R1 templates keep one
+   `is_output_first` flag for the whole conversation; the builder rendered every
+   group in the first-turn form. Once `previous_messages` hold a tool message the
+   group is now rendered behind a prefix that already contains one synthetic tool
+   exchange, so the template is in its later-turn state. 2 CPU tests.
+
+### Tokenizer-level check of the prefix change
+
+Same harness, upstream main f97625b (with #7630) against main + both patches:
+[`verl_deepseek_followup_check.py`](https://github.com/ruiling-smartbear/sglang-omni/blob/bench/975/verl_deepseek_followup_check.py),
+raw output [`verl_deepseek_followup_check_results.txt`](https://github.com/ruiling-smartbear/sglang-omni/blob/bench/975/verl_deepseek_followup_check_results.txt).
+
+| model | after == before | before == full-history diff | after == full-history diff |
+|---|---|---|---|
+| DeepSeek-V3 | 8/24 (the 16 multi-turn cases change, as intended) | 8/24 | **24/24** |
+| DeepSeek-R1 | 8/24 | 8/24 | **24/24** |
+| DeepSeek-V3.1 | 24/24 | 24/24 | 24/24 |
+| DeepSeek-V3.2-Exp | 24/24 | 24/24 | 24/24 |
+| every other builder | 24/24 | unchanged | unchanged |
+
+The changed V3 case: `<｜tool▁outputs▁begin｜><｜tool▁output▁begin｜>…` becomes
+`\n<｜tool▁output▁begin｜>…` from the second tool turn on (R1 drops the newline),
+which is exactly what the template writes for the whole conversation.
+
+### Rollout-level check on a real model
+
+[`verl_deepseek_e2e.py`](https://github.com/ruiling-smartbear/sglang-omni/blob/bench/975/verl_deepseek_e2e.py)
+drives the builder the way `tool_agent_loop` does — `build_initial_tokens`, model
+generation through an sglang server, the tool parser, the tool, `merge_non_assistant_tokens`,
+the model again — for two tool turns. Model: `deepseek-ai/DeepSeek-R1-0528-Qwen3-8B`
+(V3.1-style template, string-concatenated arguments), sglang 0.5.18 on one H100,
+temperature 0, an empty think block prefilled so the calls come immediately. Raw output:
+[`verl_deepseek_e2e_results.txt`](https://github.com/ruiling-smartbear/sglang-omni/blob/bench/975/verl_deepseek_e2e_results.txt).
+
+| verl | first tool append | second tool append | parser | outcome |
+|---|---|---|---|---|
+| 3dab856 (before #7630) | `TypeError` | – | – | loop cannot continue |
+| f97625b (main, #7630) | renders, matches the template | renders, matches | none for this format (regex stand-in) | model continues |
+| main + both patches | renders, matches | renders, matches | `DeepSeekV3ToolParser` read the model's own call | final answer: "Pittsburgh has 302,971 residents, and Cleveland has 362,656 residents" |
+
+Two things learned on the way, both outside verl: transformers 5 loads this
+checkpoint's tokenizer as `LlamaTokenizerFast` and then decodes without spaces and
+without the `｜`/`▁` characters of the DeepSeek markers (so any text-based parser is
+blind until the files are loaded as `Qwen2TokenizerFast`); and the 1.5B R1 distill
+has a V3-style template that skips `tool_calls` when `content` is not `None`, so it
+neither reproduces the crash nor uses tool results.
+
 ## Appendix — the earlier, API-shaped matrix
 
 ### What was compared (earlier run)

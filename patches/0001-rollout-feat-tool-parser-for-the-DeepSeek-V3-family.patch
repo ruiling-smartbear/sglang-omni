@@ -1,4 +1,4 @@
-From 0b648684791e5be5ad2ab94d77b8efa08410df1e Mon Sep 17 00:00:00 2001
+From 41c5d0f967d33e6d89b24295fb6f40fed0436f22 Mon Sep 17 00:00:00 2001
 From: Ruilin Gao <ruiling@andrew.cmu.edu>
 Date: Mon, 31 Aug 2026 08:17:30 +0000
 Subject: [PATCH] [rollout] feat: tool parser for the DeepSeek-V3 family
@@ -13,17 +13,17 @@ verl had no parser for either layout, so a tool loop with these models never
 saw a tool call. Register DeepSeekV3ToolParser as "deepseek_v3": both layouts,
 parallel calls, invalid JSON kept verbatim for the loop's existing handling.
 ---
- .../test_deepseek_v3_tool_parser_on_cpu.py    | 119 ++++++++++++++++++
- verl/experimental/agent_loop/tool_parser.py   |  81 ++++++++++++
- 2 files changed, 200 insertions(+)
+ .../test_deepseek_v3_tool_parser_on_cpu.py    | 137 ++++++++++++++++++
+ verl/experimental/agent_loop/tool_parser.py   |  83 +++++++++++
+ 2 files changed, 220 insertions(+)
  create mode 100644 tests/experimental/agent_loop/test_deepseek_v3_tool_parser_on_cpu.py
 
 diff --git a/tests/experimental/agent_loop/test_deepseek_v3_tool_parser_on_cpu.py b/tests/experimental/agent_loop/test_deepseek_v3_tool_parser_on_cpu.py
 new file mode 100644
-index 0000000..bce0c7a
+index 0000000..8314205
 --- /dev/null
 +++ b/tests/experimental/agent_loop/test_deepseek_v3_tool_parser_on_cpu.py
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,137 @@
 +# Copyright 2026 Bytedance Ltd. and/or its affiliates
 +#
 +# Licensed under the Apache License, Version 2.0 (the "License");
@@ -111,6 +111,24 @@ index 0000000..bce0c7a
 +            ("search", '{"query": "forecast", "top_k": 3}'),
 +        ]
 +
++    async def test_one_section_per_call_is_read_as_parallel_calls(self) -> None:
++        response_text = (
++            "<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>get_weather\n"
++            '```json\n{"city": "Seattle"}\n```\n<｜tool▁call▁end｜><｜tool▁calls▁end｜>\n'
++            "<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>get_weather\n"
++            '```json\n{"city": "Portland"}\n```\n<｜tool▁call▁end｜><｜tool▁calls▁end｜>\n\n'
++            "Both calls are out.<｜end▁of▁sentence｜>"
++        )
++        parser = DeepSeekV3ToolParser(_FakeTokenizer(response_text))
++
++        content, tool_calls = await parser.extract_tool_calls([1])
++
++        assert content == ""
++        assert [(call.name, call.arguments) for call in tool_calls] == [
++            ("get_weather", '{"city": "Seattle"}'),
++            ("get_weather", '{"city": "Portland"}'),
++        ]
++
 +    async def test_invalid_json_arguments_are_kept_verbatim(self) -> None:
 +        response_text = (
 +            '<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>get_weather<｜tool▁sep｜>{"city": Seattle}<｜tool▁call▁end｜>'
@@ -144,10 +162,10 @@ index 0000000..bce0c7a
 +        assert content == ""
 +        assert tool_calls == []
 diff --git a/verl/experimental/agent_loop/tool_parser.py b/verl/experimental/agent_loop/tool_parser.py
-index 084dfcf..b06c180 100644
+index 084dfcf..d066d53 100644
 --- a/verl/experimental/agent_loop/tool_parser.py
 +++ b/verl/experimental/agent_loop/tool_parser.py
-@@ -648,6 +648,87 @@ class KimiToolParser(ToolParser):
+@@ -648,6 +648,89 @@ class KimiToolParser(ToolParser):
          return content, function_calls
  
  
@@ -221,7 +239,9 @@ index 084dfcf..b06c180 100644
 +
 +        function_calls: list[FunctionCall] = []
 +        section_start = text.find(self.tool_calls_start_token)
-+        section_end = text.find(self.tool_calls_end_token, section_start)
++        # Everything between the first section opener and the last closer: distilled
++        # checkpoints sometimes emit one section per call instead of one for all.
++        section_end = text.rfind(self.tool_calls_end_token)
 +        for tool_call_text in self.tool_call_regex.findall(text[section_start:section_end]):
 +            function_call = self._parse_tool_call(tool_call_text)
 +            if function_call is None:
