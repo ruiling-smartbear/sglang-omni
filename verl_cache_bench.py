@@ -17,7 +17,7 @@ PR_BRANCH = "feat/generation-prompt-delta-cache"
 TARGETS = [
     ("qwen3", ["Qwen/Qwen3-8B"]),
     ("qwen35", ["Qwen/Qwen3.5-9B"]),
-    ("deepseek", ["deepseek-ai/DeepSeek-V3.2", "deepseek-ai/DeepSeek-V3.1"]),
+    ("deepseek", ["deepseek-ai/DeepSeek-V3.2-Exp", "deepseek-ai/DeepSeek-V3.1-Terminus", "deepseek-ai/DeepSeek-V3.1", "deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1"]),
     ("glm47", ["zai-org/GLM-4.7", "zai-org/GLM-4.6"]),
     ("minimaxm2", ["MiniMaxAI/MiniMax-M2"]),
     ("gptoss", ["openai/gpt-oss-20b"]),
@@ -51,7 +51,7 @@ messages = [
 per_turn, ids_all = [], []
 for turn in range(int(turns)):
     messages.append({"role": "assistant", "content": "", "tool_calls": [
-        {"id": f"call-{turn}", "type": "function", "function": {"name": "lookup", "arguments": {"q": str(turn)}}}]})
+        {"id": f"call-{turn}", "type": "function", "function": {"name": "lookup", "arguments": json.dumps({"q": str(turn)})}}]})
     previous = list(messages)
     messages.append({"role": "tool", "content": TOOL_RESULT, "tool_call_id": f"call-{turn}", "name": "lookup"})
     t0 = time.perf_counter()
