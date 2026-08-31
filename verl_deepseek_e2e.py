@@ -1,13 +1,16 @@
 # Rollout-level check of verl's DeepSeek continuous-token path on a real model.
 #
-# One tool turn, driven the way tool_agent_loop drives the builder:
-#   build_initial_tokens -> model generates a tool call -> tool runs ->
-#   merge_non_assistant_tokens (tokenize_non_assistant_incremental_messages,
-#   the path #7630 fixes) -> model continues from the merged token ids.
-# The model is served by an sglang server; the driver only needs transformers.
-# Run once against verl before #7630 (the append raises) and once against
-# current main (the model answers from the tool result).
+# Two tool turns, driven the way tool_agent_loop drives the pieces:
+#   build_initial_tokens -> model generates -> verl's tool parser (deepseek_v3,
+#   when the checkout has it) -> tool runs -> merge_non_assistant_tokens (the
+#   tokenize_non_assistant_incremental_messages path) -> model continues ...
+# The model is served by an sglang server; the driver only needs transformers
+# (+ ray/pydantic/regex for verl's parser module). Run against several verl
+# checkouts to compare: before #7630 the first append raises; with #7630 the
+# appends render; with the outputs-prefix fix the second append matches the
+# template's full-conversation render on V3 / R1-style templates.
 import argparse
+import asyncio
 import json
 import re
 import sys
@@ -23,12 +26,24 @@ parser.add_argument("--label", default="")
 parser.add_argument("--max-new-tokens", type=int, default=900)
 args = parser.parse_args()
 
-for name, sub in (("verl", "verl"), ("verl.utils", "verl/utils")):
+for name, sub in (
+    ("verl", "verl"),
+    ("verl.utils", "verl/utils"),
+    ("verl.tools", "verl/tools"),
+    ("verl.experimental", "verl/experimental"),
+    ("verl.experimental.agent_loop", "verl/experimental/agent_loop"),
+):
     stub = types.ModuleType(name)
     stub.__path__ = [f"{args.verl}/{sub}"]
     sys.modules[name] = stub
 from transformers import AutoTokenizer  # noqa: E402
 from verl.utils.tokenizer.continuous_token_wiring import get_continuous_token_builder_class  # noqa: E402
+
+try:
+    from verl.experimental.agent_loop.tool_parser import ToolParser  # noqa: E402
+except Exception as exc:  # noqa: BLE001
+    ToolParser = None
+    parser_import_error = f"{type(exc).__name__}: {str(exc)[:80]}"
 
 TOOL_NAME = "get_population"
 TOOLS = [{
@@ -39,7 +54,7 @@ TOOLS = [{
         "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]},
     },
 }]
-TOOL_ANSWER = "Pittsburgh: 302,971 residents (2023 census estimate)."
+POPULATIONS = {"pittsburgh": "302,971", "cleveland": "362,656"}
 CALL_FORMAT = (
     "<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>get_population\n"
     "```json\n{\"city\": \"<city name>\"}\n```<｜tool▁call▁end｜><｜tool▁calls▁end｜>"
@@ -47,9 +62,10 @@ CALL_FORMAT = (
 SYSTEM_PROMPT = (
     "You can call one tool, get_population(city), which returns the latest population estimate of a city. "
     "You do not know any population figures yourself. To call the tool, end your reply with exactly this block "
-    "and nothing after it:\n" + CALL_FORMAT + "\nAfter the tool result arrives, answer the user in one sentence."
+    "and nothing after it:\n" + CALL_FORMAT + "\nCall the tool for one city at a time. "
+    "When you have every figure you need, answer the user in one sentence."
 )
-USER_PROMPT = "What is the current population of Pittsburgh? Use the tool."
+USER_PROMPT = "What are the current populations of Pittsburgh and Cleveland? Use the tool, one city per call."
 CALL_RE = re.compile(
     r"<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>(\w+)\n```json\n(.*?)\n```<｜tool▁call▁end｜><｜tool▁calls▁end｜>",
     re.S,
@@ -65,76 +81,121 @@ def generate(token_ids, max_new_tokens):
         args.server + "/generate", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
     )
     with urllib.request.urlopen(request, timeout=600) as response:
-        body = json.load(response)
-    return body
+        return json.load(response)
 
 
-def tail(text, n=260):
-    return repr(text[-n:])
+def run_tool(arguments):
+    city = str(arguments.get("city", "")).strip().lower()
+    figure = POPULATIONS.get(city)
+    return f"{city.title()}: {figure} residents (2023 census estimate)." if figure else f"No figure for {city!r}."
+
+
+def with_string_arguments(messages):
+    rendered = []
+    for message in messages:
+        message = dict(message)
+        if message.get("tool_calls"):
+            message["tool_calls"] = [
+                {**call, "function": {**call["function"], "arguments": json.dumps(call["function"]["arguments"])}}
+                for call in message["tool_calls"]
+            ]
+        rendered.append(message)
+    return rendered
 
 
 tag = f"[{args.label}] " if args.label else ""
 tok = AutoTokenizer.from_pretrained(args.model)
 builder = get_continuous_token_builder_class("deepseek")(tok)
 eos_id = builder._eos_id
-print(f"{tag}verl={args.verl} model={args.model} builder={type(builder).__name__} eos_id={eos_id}")
+verl_parser = None
+if ToolParser is not None:
+    try:
+        verl_parser = ToolParser.get_tool_parser("deepseek_v3", tok)
+    except ValueError as exc:
+        print(f"{tag}no deepseek_v3 parser in this checkout ({exc}); falling back to a regex")
+else:
+    print(f"{tag}could not import verl's tool_parser ({parser_import_error}); falling back to a regex")
+print(f"{tag}verl={args.verl} model={args.model} builder={type(builder).__name__} "
+      f"parser={type(verl_parser).__name__ if verl_parser else 'regex'} eos_id={eos_id}")
+
+
+def parse_calls(text, ids):
+    if verl_parser is not None:
+        content, calls = asyncio.run(verl_parser.extract_tool_calls(ids, tools=None))
+        return content, [(call.name, json.loads(call.arguments)) for call in calls if call.name == TOOL_NAME]
+    match = CALL_RE.search(text)
+    if not match:
+        return text, []
+    return text[: match.start()], [(match.group(1), json.loads(match.group(2)))]
+
 
 messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": USER_PROMPT}]
-prompt_ids = builder.build_initial_tokens(messages, tools=TOOLS)
-print(f"{tag}prompt: {len(prompt_ids)} tokens, tail {tail(tok.decode(prompt_ids), 120)}")
+runtime_ids = builder.build_initial_tokens(messages, tools=TOOLS)
+print(f"{tag}prompt: {len(runtime_ids)} tokens, tail {tok.decode(runtime_ids)[-120:]!r}")
 
-t0 = time.time()
-first = generate(prompt_ids, args.max_new_tokens)
-first_text = first["text"]
-first_ids = first.get("output_ids") or tok.encode(first_text, add_special_tokens=False)
-print(f"{tag}turn 1: {len(first_ids)} tokens in {time.time() - t0:.1f}s, finish={first['meta_info'].get('finish_reason')}")
-print(f"{tag}turn 1 text tail: {tail(first_text, 400)}")
-
-match = CALL_RE.search(first_text)
-forced = False
-if match and match.group(1) == TOOL_NAME:
+forced_turns = []
+appended_texts = []
+final_text = ""
+for turn in (1, 2, 3):
+    t0 = time.time()
+    out = generate(runtime_ids, args.max_new_tokens)
+    text = out["text"]
+    ids = out.get("output_ids") or tok.encode(text, add_special_tokens=False)
+    print(f"{tag}turn {turn}: {len(ids)} tokens in {time.time() - t0:.1f}s, finish={out['meta_info'].get('finish_reason')}")
+    print(f"{tag}turn {turn} text tail: {text[-300:]!r}")
+    content, calls = parse_calls(text, ids)
+    if calls:
+        print(f"{tag}turn {turn}: model called {calls}")
+        assistant_ids = list(ids)
+    elif turn < 3:
+        city = ["Pittsburgh", "Cleveland"][turn - 1]
+        forced_turns.append(turn)
+        content = "<think>\nI need the tool for this.\n</think>\n\n"
+        assistant_ids = tok.encode(content + CALL_FORMAT.replace("<city name>", city), add_special_tokens=False)
+        calls = [(TOOL_NAME, {"city": city})]
+        print(f"{tag}turn {turn}: model did not call the tool; using a hand-written call for {city}")
+    else:
+        final_text = text
+        break
+    if assistant_ids[-1] != eos_id:
+        assistant_ids.append(eos_id)
+    assistant_message = {
+        "role": "assistant",
+        "content": content,
+        "tool_calls": [
+            {"id": f"call_{turn}_{index}", "type": "function", "function": {"name": name, "arguments": arguments}}
+            for index, (name, arguments) in enumerate(calls)
+        ],
+    }
+    tool_messages = [
+        {"role": "tool", "content": run_tool(arguments), "tool_call_id": f"call_{turn}_{index}"}
+        for index, (_, arguments) in enumerate(calls)
+    ]
+    runtime_ids = builder.merge_assistant_tokens(runtime_ids, assistant_ids).token_ids
+    previous = messages + [assistant_message]
+    updated = previous + tool_messages
     try:
-        arguments = json.loads(match.group(2))
-    except json.JSONDecodeError:
-        arguments = {"city": "Pittsburgh"}
-    assistant_ids = list(first_ids)
-    assistant_content = first_text[: match.start()]
-    print(f"{tag}model called the tool itself: {match.group(0)[-120:]!r}")
-else:
-    # The model did not produce the call format; stand in for it with a hand-written
-    # assistant turn so the tool-append path is still exercised.
-    forced = True
-    arguments = {"city": "Pittsburgh"}
-    assistant_content = "<think>\nI need the tool for this.\n</think>\n\n"
-    assistant_text = assistant_content + CALL_FORMAT.replace("<city name>", "Pittsburgh")
-    assistant_ids = tok.encode(assistant_text, add_special_tokens=False)
-    print(f"{tag}model did not call the tool; using a hand-written tool-call turn")
-if assistant_ids[-1] != eos_id:
-    assistant_ids.append(eos_id)
+        merged = builder.merge_non_assistant_tokens(previous, updated, runtime_ids, tools=TOOLS)
+    except Exception as exc:  # noqa: BLE001
+        print(f"{tag}turn {turn}: TOOL APPEND FAILED: {type(exc).__name__}: {str(exc)[:160]}")
+        print(f"{tag}RESULT: append_failed_at_turn={turn} forced_turns={forced_turns}")
+        raise SystemExit(0)
+    appended = merged.token_ids[len(runtime_ids):]
+    appended_text = tok.decode(appended)
+    appended_texts.append(appended_text)
+    # Independent reference: the template's own render of the whole conversation, suffix-diffed.
+    try:
+        full = tok.apply_chat_template(with_string_arguments(updated), tokenize=True, add_generation_prompt=True)
+        prefix = tok.apply_chat_template(with_string_arguments(previous), tokenize=True, add_generation_prompt=False)
+        reference = "matches template" if full[len(prefix):] == appended and full[: len(prefix)] == prefix else (
+            f"differs from template: {tok.decode(full[len(prefix):])[:120]!r}")
+    except Exception as exc:  # noqa: BLE001
+        reference = f"template render failed: {type(exc).__name__}"
+    print(f"{tag}turn {turn}: tool append {len(appended)} tokens -> {appended_text!r} | {reference}")
+    runtime_ids = merged.token_ids
+    messages = updated
 
-assistant_message = {
-    "role": "assistant",
-    "content": assistant_content,
-    "tool_calls": [{"id": "call_0", "type": "function", "function": {"name": TOOL_NAME, "arguments": arguments}}],
-}
-tool_message = {"role": "tool", "content": TOOL_ANSWER, "tool_call_id": "call_0"}
-
-runtime_ids = builder.merge_assistant_tokens(prompt_ids, assistant_ids).token_ids
-previous = messages + [assistant_message]
-updated = previous + [tool_message]
-try:
-    merged = builder.merge_non_assistant_tokens(previous, updated, runtime_ids, tools=TOOLS)
-except Exception as exc:  # noqa: BLE001
-    print(f"{tag}TOOL APPEND FAILED: {type(exc).__name__}: {str(exc)[:160]}")
-    print(f"{tag}RESULT: append_failed forced_call={forced}")
-    raise SystemExit(0)
-appended = merged.token_ids[len(runtime_ids):]
-print(f"{tag}tool append: {len(appended)} tokens -> {tok.decode(appended)!r}")
-
-t0 = time.time()
-second = generate(merged.token_ids, args.max_new_tokens)
-second_text = second["text"]
-print(f"{tag}turn 2: {second['meta_info'].get('completion_tokens')} tokens in {time.time() - t0:.1f}s, finish={second['meta_info'].get('finish_reason')}")
-print(f"{tag}turn 2 text tail: {tail(second_text, 500)}")
-used = "302,971" in second_text or "302971" in second_text.replace(",", "")
-print(f"{tag}RESULT: append_ok forced_call={forced} answer_uses_tool_result={used}")
+answer_ok = all(figure in final_text for figure in POPULATIONS.values())
+print(f"{tag}final answer tail: {final_text[-400:]!r}")
+print(f"{tag}RESULT: appends_ok={len(appended_texts)} forced_turns={forced_turns} "
+      f"parser={'verl' if verl_parser else 'regex'} answer_has_both_figures={answer_ok}")
