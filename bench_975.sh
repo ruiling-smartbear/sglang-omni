@@ -69,7 +69,23 @@ if data.ndim > 1:
     data = data.mean(axis=1)
 target = int(6.0 * sr)
 sf.write('/tmp/nonspeech6s.wav', np.tile(data, max(1, -(-target // len(data))))[:target], sr)
-print('made /tmp/nonspeech6s.wav 6.0s (looped cough)')
+print('== made /tmp/nonspeech6s.wav 6.0s (looped cough)')
+
+# Stress inputs for the runaway this PR bounds: long non-speech audio, where
+# the pre-PR budget is the fixed default (5120) no matter how little there is
+# to transcribe.
+os.makedirs('/tmp/stress', exist_ok=True)
+laugh, lsr = sf.read(paths[2])
+if laugh.ndim > 1:
+    laugh = laugh.mean(axis=1)
+sf.write('/tmp/stress/laugh60s.wav', np.tile(laugh, 12)[:int(60 * lsr)], lsr)
+rng = np.random.default_rng(0)
+sf.write('/tmp/stress/noise30s.wav', (0.05 * rng.standard_normal(30 * 16000)).astype('float32'), 16000)
+sf.write('/tmp/stress/silence30s.wav', np.zeros(30 * 16000, dtype='float32'), 16000)
+tone = 0.2 * np.sin(2 * np.pi * 440 * np.arange(30 * 16000) / 16000)
+sf.write('/tmp/stress/tone30s.wav', tone.astype('float32'), 16000)
+for name in ('laugh60s', 'noise30s', 'silence30s', 'tone30s'):
+    print('== made /tmp/stress/%s.wav' % name, round(sf.info('/tmp/stress/%s.wav' % name).duration, 2), 's')
 PY
 
 # DeepGEMM's _C.so dlopens libnvrtc.so.13, which lives inside the pip-installed
@@ -102,7 +118,7 @@ stop_server() {
 }
 
 bench() {  # $1 = label
-  for f in /tmp/esc/laugh10s.wav /tmp/esc/*_*.wav /tmp/nonspeech6s.wav /tmp/so/tests/data/cough.wav /tmp/so/tests/data/query_to_cars.wav; do
+  for f in /tmp/stress/*.wav /tmp/esc/laugh10s.wav /tmp/esc/*_*.wav /tmp/nonspeech6s.wav /tmp/so/tests/data/cough.wav /tmp/so/tests/data/query_to_cars.wav; do
     for i in 1 2 3; do
       T=$(curl -s -o /tmp/resp.json -w '%{time_total}' -X POST localhost:8000/v1/audio/transcriptions \
         -F model=OpenMOSS-Team/MOSS-Transcribe-Diarize -F "file=@$f" -F response_format=json)
