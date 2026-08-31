@@ -1,4 +1,7 @@
 > **Superseded.** This was the first pass and two of its conclusions were too strong:
+
+> Moved: the maintained copy of these experiments now lives at https://github.com/ruiling-smartbear/oss-experiments (`verl/` and `sglang-omni/`). This branch stays as it was so existing links keep working.
+
 > DeepSeek-V3.2-Exp and gpt-oss are *not* counter-examples to rendering the generation
 > prompt with the last append group — DeepSeek's role-dependent prompt is reproduced by
 > that render (the dependence only rules out one cached id per model), and the gpt-oss

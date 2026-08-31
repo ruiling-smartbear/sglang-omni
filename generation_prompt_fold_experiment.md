@@ -1,5 +1,7 @@
 # Folding the generation prompt into the last append group — verl #7617
 
+> Moved: the maintained copy of these experiments now lives at https://github.com/ruiling-smartbear/oss-experiments (`verl/` and `sglang-omni/`). This branch stays as it was so existing links keep working.
+
 **Question.** `tokenize_non_assistant_incremental_messages` renders every append
 group against a bounded synthetic prefix, then renders the *full* history twice
 (`add_generation_prompt` False / True) just to obtain the generation prompt. Can
