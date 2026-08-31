@@ -18,7 +18,14 @@ def v(name):
         return m.version(name)
     except Exception:
         return "missing"
-print(f"== VERSIONS | {sys.argv[1]} | sglang-omni={v('sglang-omni')} sglang={v('sglang')} torch={v('torch')}")
+import sglang_omni.models.moss_transcribe_diarize.request_builders as rb
+# Fingerprint of the installed code, so a skipped or cached pip install cannot
+# quietly benchmark one side against itself.
+floor = getattr(rb, "_MIN_SCALED_OUTPUT_TOKENS", None)
+print(
+    f"== VERSIONS | {sys.argv[1]} | sglang-omni={v('sglang-omni')} sglang={v('sglang')} "
+    f"torch={v('torch')} pr_floor_constant={floor}"
+)
 PY
 }
 
@@ -30,6 +37,10 @@ echo "== install base (main @ ${BASE_SHA:0:7}) with dependencies =="
 # with --no-deps, so both sides run on byte-identical dependencies and the only
 # difference is the three files this PR touches.
 pip install -q "$BASE_PKG" 2>&1 | tail -3
+# A previous run may have left the PR build installed under the same version
+# string, and pip then reports the requirement as already satisfied. Force the
+# base code in explicitly; dependencies stay untouched.
+pip install -q --no-deps --force-reinstall "$BASE_PKG" 2>&1 | tail -1
 # the package pins typer>=0.9.0, but the sgl-omni CLI uses typing.Literal
 # options that older typer cannot parse; make sure a current typer is present.
 pip install -q -U typer 2>&1 | tail -1
