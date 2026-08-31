@@ -23,8 +23,8 @@ FAMILY_MODELS = [
     ("qwen35", ["Qwen/Qwen3.5-9B"]),
     ("minimaxm2", ["MiniMaxAI/MiniMax-M2"]),
     ("glm47", ["zai-org/GLM-4.7"]),
-    ("gemma4", ["google/gemma-4-27b-it", "unsloth/gemma-4-27b-it", "unsloth/gemma-4-12b-it", "unsloth/gemma-4-4b-it",
-                "google/gemma-4-12b-it", "unsloth/gemma-3-27b-it"]),
+    # Gemma 4's tokenizer_config needs transformers >= 5 to load (extra_special_tokens is a list).
+    ("gemma4", ["google/gemma-4-12b-it", "unsloth/gemma-4-12b-it"]),
     ("gptoss", ["openai/gpt-oss-20b"]),
     ("deepseek", ["deepseek-ai/DeepSeek-V3.2-Exp", "deepseek-ai/DeepSeek-V3"]),
     ("default", ["HuggingFaceTB/SmolLM3-3B"]),
