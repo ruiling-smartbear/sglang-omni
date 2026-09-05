@@ -485,7 +485,7 @@ def make_moss_transcribe_diarize_scheduler_adapters(
                     request_max_new_tokens,
                 )
             else:
-                # note: scale the budget with duration in both directions.
+                # Note (Ruilin Gao): scale the budget with duration in both directions.
                 # Raising it keeps dense transcripts past ~20 minutes from
                 # being cut; capping it keeps greedy decoding from looping
                 # until the fixed default on short non-speech audio
