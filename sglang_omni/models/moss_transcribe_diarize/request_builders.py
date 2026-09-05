@@ -44,9 +44,12 @@ DEFAULT_TOP_K = 50
 # tokens per audio second including time markers, so 10 leaves roughly 2x
 # headroom without approaching the input token cost of the same audio.
 _OUTPUT_TOKENS_PER_AUDIO_SECOND = 10
-# Floor for the duration scaled budget: even a near-empty clip needs room
-# for the timestamped, speaker-labelled framing around a short transcript.
-_MIN_SCALED_OUTPUT_TOKENS = 128
+# Floor for the duration-scaled budget. Short, dense multi-speaker clips need
+# room for transcript text plus repeated timestamp and speaker-label framing;
+# a 128-token floor truncated valid outputs in the movies800times ASR set.
+# This remains far below the legacy 5120-token default that allowed short
+# non-speech repetition loops to run for thousands of tokens.
+_MIN_SCALED_OUTPUT_TOKENS = 512
 # Note (yichi): MOSS-Transcribe-Diarize is an audio LLM: a Qwen3 text decoder
 # over Whisper audio embeddings, trained on a fixed transcribe+diarize
 # instruction with the timestamped/speaker-labelled transcript as the target

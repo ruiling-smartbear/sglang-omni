@@ -560,7 +560,7 @@ def test_request_builder_rejects_out_of_range_repetition_penalty() -> None:
 
 
 def test_request_builder_scaled_budget_floor_boundary() -> None:
-    # 12.8s * 10 tokens/s lands exactly on the 128 floor; 13s clears it.
+    # 51.2s * 10 tokens/s lands exactly on the 512 floor; 52s clears it.
     processor = FakeProcessor()
     request_builder, _ = make_moss_transcribe_diarize_scheduler_adapters(
         processor=processor,
@@ -570,14 +570,14 @@ def test_request_builder_scaled_budget_floor_boundary() -> None:
     )
 
     at_floor = request_builder(
-        _payload_with_inputs({"audios": [_wav_bytes(num_samples=int(16000 * 12.8))]})
+        _payload_with_inputs({"audios": [_wav_bytes(num_samples=int(16000 * 51.2))]})
     )
     above_floor = request_builder(
-        _payload_with_inputs({"audios": [_wav_bytes(num_samples=16000 * 13)]})
+        _payload_with_inputs({"audios": [_wav_bytes(num_samples=16000 * 52)]})
     )
 
-    assert at_floor.req.sampling_params.max_new_tokens == 128
-    assert above_floor.req.sampling_params.max_new_tokens == 130
+    assert at_floor.req.sampling_params.max_new_tokens == 512
+    assert above_floor.req.sampling_params.max_new_tokens == 520
 
 
 def test_request_builder_empty_audio_budget_keeps_floor(monkeypatch) -> None:
@@ -599,7 +599,7 @@ def test_request_builder_empty_audio_budget_keeps_floor(monkeypatch) -> None:
 
     data = request_builder(_payload())
 
-    assert data.req.sampling_params.max_new_tokens == 128
+    assert data.req.sampling_params.max_new_tokens == 512
 
 
 def test_request_builder_uses_moss_sampling_defaults() -> None:
