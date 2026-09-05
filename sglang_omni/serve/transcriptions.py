@@ -335,7 +335,7 @@ async def _transcribe_audio_chunks(
     language: str | None,
     prompt: str | None,
     temperature: float | None,
-    repetition_penalty: float | None,
+    repetition_penalty: float | None = None,
     max_new_tokens: int | None,
     max_concurrent: int,
     condition_on_previous_text: bool,
