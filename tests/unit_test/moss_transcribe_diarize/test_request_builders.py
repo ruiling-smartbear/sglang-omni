@@ -599,7 +599,7 @@ def test_request_builder_empty_audio_budget_keeps_floor(monkeypatch) -> None:
 
     data = request_builder(_payload())
 
-    assert data.req.sampling_params.max_new_tokens == 512
+    assert data.req.sampling_params.max_new_tokens == 128
 
 
 def test_request_builder_uses_moss_sampling_defaults() -> None:

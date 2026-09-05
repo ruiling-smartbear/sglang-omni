@@ -50,6 +50,9 @@ _OUTPUT_TOKENS_PER_AUDIO_SECOND = 10
 # This remains far below the legacy 5120-token default that allowed short
 # non-speech repetition loops to run for thousands of tokens.
 _MIN_SCALED_OUTPUT_TOKENS = 512
+# A zero-duration input has no legitimate transcript to preserve, so retain a
+# tighter fallback than the floor used for short, dense speech.
+_EMPTY_AUDIO_OUTPUT_TOKENS = 128
 # Note (yichi): MOSS-Transcribe-Diarize is an audio LLM: a Qwen3 text decoder
 # over Whisper audio embeddings, trained on a fixed transcribe+diarize
 # instruction with the timestamped/speaker-labelled transcript as the target
@@ -480,7 +483,7 @@ def make_moss_transcribe_diarize_scheduler_adapters(
                 # Empty audio has no legitimate long transcript; keep the
                 # same floor as the scaled path so a loop cannot burn the
                 # full fixed default here either.
-                request_max_new_tokens = min(max_new_tokens, _MIN_SCALED_OUTPUT_TOKENS)
+                request_max_new_tokens = min(max_new_tokens, _EMPTY_AUDIO_OUTPUT_TOKENS)
                 logger.warning(
                     "Request %s decoded to empty audio, the output budget "
                     "falls back to %d",
