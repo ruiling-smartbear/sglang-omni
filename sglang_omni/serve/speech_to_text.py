@@ -161,9 +161,9 @@ def build_speech_to_text_generate_request(
     record_explicit_generation_params(metadata, sorted(explicit_fields))
     sampling = SamplingParams(
         temperature=temperature if temperature is not None else 0.0,
-        repetition_penalty=repetition_penalty
-        if repetition_penalty is not None
-        else 1.0,
+        repetition_penalty=(
+            repetition_penalty if repetition_penalty is not None else 1.0
+        ),
         max_new_tokens=max_new_tokens,
     )
 
