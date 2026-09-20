@@ -5,7 +5,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from sglang_omni.models.auk.dit import Attention, _attention_bias
+from sglang_omni.models.auk.dit import Attention, attention_bias
 
 
 @pytest.mark.parametrize("enabled", [False, True])
@@ -35,8 +35,8 @@ def test_mask_layout_and_output_match_expanded_reference(monkeypatch, enabled, m
 
     monkeypatch.setattr(F, "scaled_dot_product_attention", record)
     torch.testing.assert_close(
-        attention._attend(
-            q, k, v, _attention_bias(mask, q.dtype) if masked and enabled else None
+        attention.attend(
+            q, k, v, attention_bias(mask, q.dtype) if masked and enabled else None
         ),
         expected,
         rtol=0,
