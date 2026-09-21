@@ -40,7 +40,7 @@ class AuKDecodeScheduler(SimpleScheduler):
 
         @torch.inference_mode()
         def run(payloads):
-            with self._device_context():
+            with self.device_context():
                 return compute_batch(payloads)
 
         super().__init__(
@@ -51,7 +51,7 @@ class AuKDecodeScheduler(SimpleScheduler):
             batch_wait_when_idle=False,
         )
 
-    def _device_context(self):
+    def device_context(self):
         return (
             torch.cuda.stream(self._decode_stream)
             if self._decode_stream is not None
@@ -59,25 +59,25 @@ class AuKDecodeScheduler(SimpleScheduler):
         )
 
     @staticmethod
-    def _wants_stream(msg):
+    def wants_stream(msg):
         return bool((msg.data.request.params or {}).get("stream", False))
 
-    def _run_batch(self, batch, loop):
-        if not any(self._wants_stream(msg) for msg in batch):
-            return super()._run_batch(batch, loop)
+    def run_batch(self, batch, loop):
+        if not any(self.wants_stream(msg) for msg in batch):
+            return super().run_batch(batch, loop)
         # A failure in one streamed request must not error earlier completed
         # requests in this mixed batch. Non-stream requests remain non-streaming.
         for msg in batch:
             try:
-                self._run_single(msg, loop)
+                self.run_single(msg, loop)
             except Exception as exc:
-                if not self._consume_if_aborted(msg.request_id):
-                    self._emit_error(msg.request_id, exc, self.outbox)
+                if not self.consume_if_aborted(msg.request_id):
+                    self.emit_error(msg.request_id, exc, self.outbox)
 
-    def _run_single(self, msg, loop):
-        if not self._wants_stream(msg):
-            return super()._run_single(msg, loop)
-        if self._consume_if_aborted(msg.request_id) or self._closing:
+    def run_single(self, msg, loop):
+        if not self.wants_stream(msg):
+            return super().run_single(msg, loop)
+        if self.consume_if_aborted(msg.request_id) or self._closing:
             return
         payload = msg.data
         state = load_state(payload, AuKState)
@@ -88,18 +88,18 @@ class AuKDecodeScheduler(SimpleScheduler):
                 raise ValueError(
                     "AuK stream=true requires decode.factory.chunk_frames > 0"
                 )
-            with torch.inference_mode(), self._device_context():
+            with torch.inference_mode(), self.device_context():
                 latents = state.latent.unsqueeze(0).to(self._device)
                 chunks = self._vae.iter_decode_chunks(latents, self._chunk_frames)
                 count = 0
                 while not self._closing:
-                    if self._consume_if_aborted(msg.request_id):
+                    if self.consume_if_aborted(msg.request_id):
                         return
                     try:
                         waveform = next(chunks)
                     except StopIteration:
                         break
-                    if self._consume_if_aborted(msg.request_id) or self._closing:
+                    if self.consume_if_aborted(msg.request_id) or self._closing:
                         return
                     if not torch.isfinite(waveform).all():
                         raise RuntimeError("AuK generated audio contains NaN/Inf")
@@ -117,7 +117,7 @@ class AuKDecodeScheduler(SimpleScheduler):
                         )
                     )
                     count += 1
-                if self._closing or self._consume_if_aborted(msg.request_id):
+                if self._closing or self.consume_if_aborted(msg.request_id):
                     return
                 if count == 0:
                     raise RuntimeError("AuK decoder produced no audio chunks")
@@ -130,7 +130,7 @@ class AuKDecodeScheduler(SimpleScheduler):
                 usage=build_usage(state),
             )
             # Metadata only: emitted audio must not be sent again at completion.
-            self._emit_result(msg.request_id, result, self.outbox)
+            self.emit_result(msg.request_id, result, self.outbox)
         finally:
             if chunks is not None:
                 chunks.close()
