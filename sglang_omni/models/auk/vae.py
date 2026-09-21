@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field, fields
+from typing import Iterator
 
 import torch
 from torch import nn
@@ -927,13 +928,13 @@ class BigVGANFlowVAE(nn.Module):
         return max(0, -lo), max(0, hi)
 
     @torch.inference_mode()
-    def iter_decode_chunks(self, latents: torch.Tensor, chunk_frames: int):
+    def iter_decode_chunks(
+        self, latents: torch.Tensor, chunk_frames: int
+    ) -> Iterator[torch.Tensor]:
         """Yield owned CPU [B,1,samples] chunks from complete [B,T,D] latents.
 
-        Keep only one halo-extended decode on the device at a time. Overlap is
-        discarded, not crossfaded; true utterance boundaries retain the original
-        decoder padding. This bounds decoder activations, not DiT generation,
-        and does not make DiT generation incremental.
+        One halo-extended decode is resident at a time; overlap is discarded,
+        not crossfaded, and DiT generation stays non-incremental.
         """
         if (
             isinstance(chunk_frames, bool)

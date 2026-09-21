@@ -37,6 +37,7 @@ from sglang_omni.models.auk.step_cuda_graph import (
     AuKStepCudaGraphRunner,
     build_step_graph_runner,
 )
+from sglang_omni.models.auk.streaming_decode import AuKDecodeScheduler
 from sglang_omni.models.auk.vae import AuKVAEConfig, BigVGANFlowVAE
 from sglang_omni.models.auk.weight_loader import (
     load_dit_weights,
@@ -432,8 +433,6 @@ def create_decode_executor(
     max_batch_wait_ms: int = 10,
     chunk_frames: int = 0,
 ) -> SimpleScheduler:
-    from sglang_omni.models.auk.streaming_decode import AuKDecodeScheduler
-
     if (
         isinstance(chunk_frames, bool)
         or not isinstance(chunk_frames, int)
