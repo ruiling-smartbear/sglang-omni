@@ -8,9 +8,13 @@ import pytest
 import torch
 
 from sglang_omni.config.manager import ConfigManager
+from sglang_omni.config.runtime import resolve_stage_factory_args
 from sglang_omni.models.personaplex import stages
 from sglang_omni.models.personaplex.architecture import SAMPLES_PER_FRAME
-from sglang_omni.models.personaplex.config import PersonaPlexPipelineConfig
+from sglang_omni.models.personaplex.config import (
+    MimiEncodeFactoryArgs,
+    PersonaPlexPipelineConfig,
+)
 from sglang_omni.models.personaplex.payload_types import PersonaPlexState
 from sglang_omni.models.personaplex.prompts import (
     DEFAULT_TEXT_PROMPT,
@@ -198,7 +202,9 @@ def test_mimi_encode_replaces_caller_and_voice_waveforms_with_codes(monkeypatch)
             return torch.full((1, 8, frames), first, dtype=torch.long)
 
     monkeypatch.setattr(stages, "load_codec", lambda *a, **k: (_Codec(), "cpu"))
-    scheduler = stages.create_mimi_encode_executor("m")
+    scheduler = stages.create_mimi_encode_executor(
+        "m", **MimiEncodeFactoryArgs().model_dump(exclude_none=True)
+    )
 
     def run(state):
         payload = StagePayload(
@@ -221,12 +227,9 @@ def test_mimi_encode_replaces_caller_and_voice_waveforms_with_codes(monkeypatch)
 
 
 @pytest.mark.parametrize("frames", [[0], [126], [True], [1, 2, 3, 4, 5]])
-def test_mimi_graph_limits_are_validated_before_loading(frames, monkeypatch):
-    load = Mock()
-    monkeypatch.setattr(stages, "load_codec", load)
+def test_mimi_graph_config_rejects_invalid_lengths(frames):
     with pytest.raises(ValueError):
-        stages.create_mimi_encode_executor("m", cuda_graph_frames=frames)
-    load.assert_not_called()
+        MimiEncodeFactoryArgs(cuda_graph_frames=frames)
 
 
 def test_mimi_graph_config_reaches_the_stage():
@@ -234,6 +237,9 @@ def test_mimi_graph_config_reaches_the_stage():
     stage = next(s for s in config.stages if s.name == "mimi_encode")
     assert stage.factory.cuda_graph_frames == []
     assert stage.factory.compile_quantizer is False
+    defaults = resolve_stage_factory_args(stage, config)
+    assert defaults["cuda_graph_frames"] == []
+    assert defaults["compile_quantizer"] is False
     manager = ConfigManager(config)
     overrides = manager.parse_extra_args(
         [
@@ -248,6 +254,9 @@ def test_mimi_graph_config_reaches_the_stage():
     stage = next(s for s in restored.stages if s.name == "mimi_encode")
     assert stage.factory.cuda_graph_frames == [4, 25]
     assert stage.factory.compile_quantizer is True
+    resolved = resolve_stage_factory_args(stage, restored)
+    assert resolved["cuda_graph_frames"] == [4, 25]
+    assert resolved["compile_quantizer"] is True
 
 
 def test_mimi_graph_setting_keeps_cpu_encoding_eager(monkeypatch):

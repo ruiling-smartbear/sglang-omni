@@ -18,10 +18,7 @@ from sglang_omni.models.personaplex.components.mimi import (
     load_mimi_codec,
     resolve_mimi_weights,
 )
-from sglang_omni.models.personaplex.config import (
-    PREPROCESSING_STAGE,
-    MimiEncodeFactoryArgs,
-)
+from sglang_omni.models.personaplex.config import PREPROCESSING_STAGE
 from sglang_omni.models.personaplex.encoder_cuda_graph import MimiEncoderCudaGraphRunner
 from sglang_omni.models.personaplex.engine_builder import PersonaPlexEngineBuilder
 from sglang_omni.models.personaplex.payload_types import PersonaPlexState
@@ -152,29 +149,22 @@ def create_mimi_encode_executor(
     *,
     device: str | None = None,
     gpu_id: int | None = None,
-    cuda_graph_frames: list[int] | None = None,
-    compile_quantizer: bool | None = None,
+    cuda_graph_frames: list[int],
+    compile_quantizer: bool,
     **_,
 ) -> SimpleScheduler[StagePayload, StagePayload]:
-    factory_options = {"cuda_graph_frames": cuda_graph_frames or []}
-    if compile_quantizer is not None:
-        factory_options["compile_quantizer"] = compile_quantizer
-    else:
-        pass
-    configuration = MimiEncodeFactoryArgs.model_validate(factory_options)
-    frames = configuration.cuda_graph_frames
     codec, device = load_codec(model_path, device=device, gpu_id=gpu_id)
     graph_backend = (
         current_platform.get_device_graph_backend(device)
-        if frames and device.type == "cuda"
+        if cuda_graph_frames and device.type == "cuda"
         else None
     )
     runner = (
         MimiEncoderCudaGraphRunner(
             codec,
-            frames=frames,
+            frames=cuda_graph_frames,
             graph_backend=graph_backend,
-            compile_quantizer=configuration.compile_quantizer,
+            compile_quantizer=compile_quantizer,
         )
         if graph_backend is not None
         else None
