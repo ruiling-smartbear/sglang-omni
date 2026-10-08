@@ -18,7 +18,11 @@ from sglang_omni.models.personaplex.components.mimi import (
     load_mimi_codec,
     resolve_mimi_weights,
 )
-from sglang_omni.models.personaplex.config import PREPROCESSING_STAGE
+from sglang_omni.models.personaplex.config import (
+    PREPROCESSING_STAGE,
+    MimiEncodeFactoryArgs,
+)
+from sglang_omni.models.personaplex.encoder_cuda_graph import MimiEncoderCudaGraphRunner
 from sglang_omni.models.personaplex.engine_builder import PersonaPlexEngineBuilder
 from sglang_omni.models.personaplex.payload_types import PersonaPlexState
 from sglang_omni.models.personaplex.prompts import (
@@ -34,6 +38,7 @@ from sglang_omni.models.personaplex.prompts import (
 )
 from sglang_omni.models.personaplex.request_builders import stage_request_params
 from sglang_omni.models.weight_loader import resolve_model_path
+from sglang_omni.platforms import current_platform
 from sglang_omni.preprocessing.transcription import (
     police_request_audio,
     resolve_audio_source,
@@ -143,11 +148,43 @@ def load_codec(
 
 
 def create_mimi_encode_executor(
-    model_path: str, *, device: str | None = None, gpu_id: int | None = None, **_
+    model_path: str,
+    *,
+    device: str | None = None,
+    gpu_id: int | None = None,
+    cuda_graph_frames: list[int] | None = None,
+    compile_quantizer: bool | None = None,
+    **_,
 ) -> SimpleScheduler[StagePayload, StagePayload]:
+    factory_options = {"cuda_graph_frames": cuda_graph_frames or []}
+    if compile_quantizer is not None:
+        factory_options["compile_quantizer"] = compile_quantizer
+    else:
+        pass
+    configuration = MimiEncodeFactoryArgs.model_validate(factory_options)
+    frames = configuration.cuda_graph_frames
     codec, device = load_codec(model_path, device=device, gpu_id=gpu_id)
+    graph_backend = (
+        current_platform.get_device_graph_backend(device)
+        if frames and device.type == "cuda"
+        else None
+    )
+    runner = (
+        MimiEncoderCudaGraphRunner(
+            codec,
+            frames=frames,
+            graph_backend=graph_backend,
+            compile_quantizer=configuration.compile_quantizer,
+        )
+        if graph_backend is not None
+        else None
+    )
 
     def encode_waveform(waveform: torch.Tensor) -> torch.Tensor:
+        if runner is not None:
+            return runner.encode(waveform)
+        else:
+            pass
         codes = codec.encode(
             waveform.to(device=device, dtype=torch.float32).view(1, 1, -1)
         )
