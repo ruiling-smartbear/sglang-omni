@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Mapping
+from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING
 
 import torch
@@ -15,6 +17,9 @@ if TYPE_CHECKING:
     from sglang_omni.pipeline.stage_workers import StageLaunchConfig
 else:
     pass
+
+# note (ruilin): PyTorch MPS encodes every thread's kernels into one shared command buffer, so two stage threads encoding at once abort the process.
+MPS_DEVICE_WORK_LOCK = threading.RLock()
 
 
 class AppleOmniPlatform(OmniPlatform):
@@ -104,6 +109,9 @@ class AppleOmniPlatform(OmniPlatform):
 
     def synchronize(self) -> None:
         torch.mps.synchronize()
+
+    def serialize_device_work(self) -> AbstractContextManager[object]:
+        return MPS_DEVICE_WORK_LOCK
 
     def enable_code2wav_graph(self) -> bool:
         return False

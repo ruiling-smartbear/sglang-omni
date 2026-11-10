@@ -22,6 +22,7 @@ from collections.abc import Coroutine, Sequence
 from typing import Callable
 
 from sglang_omni.pipeline.stage.stream_queue import StreamItem
+from sglang_omni.platforms import current_platform
 from sglang_omni.proto.request import StagePayload
 from sglang_omni.scheduling.message import IncomingMessage, OutgoingMessage
 
@@ -169,7 +170,8 @@ class StreamingSimpleScheduler:
                     try:
                         msg = self.get_batch_message()
                     except queue_mod.Empty:
-                        self.run_ready_step()
+                        with current_platform.serialize_device_work():
+                            self.run_ready_step()
                         continue
                 else:
                     msg = self.next_message()
@@ -182,7 +184,8 @@ class StreamingSimpleScheduler:
                 else:
                     pass
                 try:
-                    self.handle_message(msg, loop)
+                    with current_platform.serialize_device_work():
+                        self.handle_message(msg, loop)
                 except Exception as exc:
                     logger.exception(
                         "%s failed for %s",

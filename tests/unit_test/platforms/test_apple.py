@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -51,3 +52,21 @@ def test_apple_stage_accepts_device_zero() -> None:
     spec = SimpleNamespace(stage_name="asr", tp_size=1, gpu_id=0)
 
     assert apple.get_stage_process_env(spec) == {}
+
+
+def test_apple_device_work_is_serialized_across_threads() -> None:
+    device_work = AppleOmniPlatform().serialize_device_work()
+    assert device_work is AppleOmniPlatform().serialize_device_work()
+
+    worker_entered = threading.Event()
+
+    def enter_device_work() -> None:
+        with device_work:
+            worker_entered.set()
+
+    with device_work:
+        worker = threading.Thread(target=enter_device_work, daemon=True)
+        worker.start()
+        assert not worker_entered.wait(0.1)
+    assert worker_entered.wait(5.0)
+    worker.join(5.0)

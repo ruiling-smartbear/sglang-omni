@@ -21,6 +21,7 @@ from sglang.srt.sampling.sampling_params import SamplingParams
 
 from sglang_omni.models.fun_cosyvoice3.payload_types import FunCosyVoice3State
 from sglang_omni.models.fun_cosyvoice3.streaming import build_cosyvoice3_stream_metadata
+from sglang_omni.platforms import current_platform
 from sglang_omni.preprocessing.cache_key import hash_bytes as _hash_bytes
 from sglang_omni.preprocessing.cache_key import (
     reference_path_cache_key as _reference_path_cache_key,
@@ -799,26 +800,27 @@ def prepare_cosyvoice3_request(
         )
     else:
         dtype = next(model.parameters()).dtype
-        with torch.no_grad():
-            text_embed = model.text_embed_tokens(text_token.to(device=device))
+        with current_platform.serialize_device_work():
+            with torch.no_grad():
+                text_embed = model.text_embed_tokens(text_token.to(device=device))
 
-        prompt_input_embeds = build_llm_prompt_embeddings(
-            text_token=text_token.to(device=device),
-            text_embed=text_embed,
-            prompt_speech_token=llm_prompt_speech_token.to(device=device),
-            speech_embed=model.speech_embedding,
-            embedding=spk_embedding,
-            sos_id=SOS_ID,
-            task_id=TASK_ID,
-            hidden_size=model.config.hidden_size,
-            device=device,
-            dtype=dtype,
-        )
+            prompt_input_embeds = build_llm_prompt_embeddings(
+                text_token=text_token.to(device=device),
+                text_embed=text_embed,
+                prompt_speech_token=llm_prompt_speech_token.to(device=device),
+                speech_embed=model.speech_embedding,
+                embedding=spk_embedding,
+                sos_id=SOS_ID,
+                task_id=TASK_ID,
+                hidden_size=model.config.hidden_size,
+                device=device,
+                dtype=dtype,
+            )
 
-        prompt_input_embeds = (
-            prompt_input_embeds.squeeze(0).detach().to(device=device, dtype=dtype)
-        )
-        input_ids_list = build_embedding_cache_key_ids(prompt_input_embeds)
+            prompt_input_embeds = (
+                prompt_input_embeds.squeeze(0).detach().to(device=device, dtype=dtype)
+            )
+            input_ids_list = build_embedding_cache_key_ids(prompt_input_embeds)
     input_ids = torch.tensor(input_ids_list, dtype=torch.long)
 
     return CosyVoice3PreparedRequest(

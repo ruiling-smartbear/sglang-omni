@@ -261,6 +261,10 @@ class OmniPlatform(DeviceMixin):
         """Empty leaves dispatch alone."""
         return ()
 
+    def serialize_device_work(self) -> AbstractContextManager[object]:
+        """Held by every thread of a stage process while it issues device work."""
+        return nullcontext()
+
     def graph_capture_attention(self) -> AbstractContextManager[object]:
         backends = self.get_graph_capture_sdpa_backends()
         if not backends:

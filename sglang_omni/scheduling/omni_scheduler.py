@@ -4279,30 +4279,34 @@ class OmniScheduler(Generic[RequestDataT]):
         # (which is mostly Python-side dispatch into many small CUDA kernels)
         # slows ~600x, dropping audio QPS from >10 to <0.5.
         while self.running:
-            self.process_admin_requests()
-            recv_reqs = self.recv_requests()
-            recv_reqs.extend(self.take_deferred_request_payloads())
-            self.process_input_requests(recv_reqs)
-            if self._engine_paused:  # noqa: leading-underscore
+            with current_platform.serialize_device_work():
                 self.process_admin_requests()
+                recv_reqs = self.recv_requests()
+                recv_reqs.extend(self.take_deferred_request_payloads())
+                self.process_input_requests(recv_reqs)
+                is_engine_paused = self._engine_paused  # noqa: leading-underscore
+                if is_engine_paused:
+                    self.process_admin_requests()
+                    batch = None
+                else:
+                    batch = self.get_next_batch_to_run()
+                    self.cur_batch = batch
+                    if batch:
+                        result = self.run_batch(batch)
+                        if result is not _FAILED_BATCH_RESULT:
+                            self.process_batch_result(batch, result)
+                        else:
+                            pass
+                    else:
+                        self._sched_idled = True  # noqa: leading-underscore
+                        self.self_check_during_idle()
+            if is_engine_paused:
                 time.sleep(0.001)
                 continue
+            elif not batch:
+                self.sleep_during_idle()
             else:
                 pass
-
-            batch = self.get_next_batch_to_run()
-            self.cur_batch = batch
-
-            if batch:
-                result = self.run_batch(batch)
-                if result is not _FAILED_BATCH_RESULT:
-                    self.process_batch_result(batch, result)
-                else:
-                    pass
-            else:
-                self._sched_idled = True  # noqa: leading-underscore
-                self.self_check_during_idle()
-                self.sleep_during_idle()
 
             self.last_batch = batch
             if envs.SGLANG_ENABLE_STRICT_MEM_CHECK_DURING_BUSY.get():
