@@ -137,6 +137,7 @@ All notable changes to Voxt. The format follows [Keep a Changelog](https://keepa
 
 ### Fixed
 
+- **No flash as the overlay fades out**: when a dictation ends, the overlay fades with its last words still in it; it no longer flashes the microphone row alone in the empty card first.
 - **Final meeting transcription collapses repetition loops**: live captions already did this (#3981); the final pass now applies the same guard to plain and diarized recognition, so a repeated phrase no longer reaches correction and summary as a long loop.
 - **MOSS meetings use the personal dictionary** (#4416): post-stop Final and speaker-diarization requests carry enabled terms in MOSS's Hotwords format; live and intermediate previews stay unchanged, and Qwen3-ASR behavior is unchanged.
 - **Rewrite keeps typed follow-ups through failed starts and card transitions** (#4375): a refused start or an early missing-model failure no longer erases the follow-up you typed. Text typed while a follow-up is running also stays in the card when that request finishes or is cancelled with Esc.
@@ -199,6 +200,7 @@ All notable changes to Voxt. The format follows [Keep a Changelog](https://keepa
 
 #### 修复
 
+- **浮窗淡出时不再闪一下**：听写结束时，浮窗带着最后的文字淡出，不会先闪回只剩麦克风那一行的空卡片。
 - **会后识别也会折叠重复文本**：实时字幕早已这样处理（#3981），现在会后普通识别和分人识别也会这样处理，重复的幻觉句不再整段送进校对和总结。
 - **会议使用 MOSS 时也会用上个人词典**（#4416）：停止后的最终识别和分说话人请求按 MOSS 的 Hotwords 格式带上启用的词条；实时字幕和中间预览保持不变，Qwen3-ASR 行为不变。
 - **改写在开始失败或卡片状态切换时保留已输入的追问**（#4375）：开始被拒绝或较早发现没有可用语言模型时，不再清掉已经输入的追问。追问进行期间继续输入的文字，在请求完成或按 Esc 取消后也会留在卡片里。
