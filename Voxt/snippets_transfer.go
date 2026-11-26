@@ -37,7 +37,7 @@ func (a *app) importSnippets() {
 
 // importSnippetsFile adds the snippets in the file at path, from the
 // import dialog's file chooser or a drop on it. A file that imports
-// closes the dialog and says how many came in; the problem of one that
+// closes the dialog and says how many came in, in the middle of the page; the problem of one that
 // does not shows in the dialog, or as a toast once it is closed.
 func (a *app) importSnippetsFile(path string) {
 	a.async(func() {
@@ -64,11 +64,11 @@ func (a *app) importSnippetsFile(path string) {
 				a.saveSnippets()
 			}
 			a.snipUI.importOpen, a.snipUI.importErr = false, ""
+			msg := i18n.T("Imported: %d new, %d updated.", added, updated)
 			if skipped > 0 {
-				a.toast(i18n.T("Imported: %d new, %d updated, %d skipped.", added, updated, skipped))
-				return
+				msg = i18n.T("Imported: %d new, %d updated, %d skipped.", added, updated, skipped)
 			}
-			a.toast(i18n.T("Imported: %d new, %d updated.", added, updated))
+			a.snipUI.notice, a.snipUI.noticeAt = msg, time.Time{} // shown by snippetsImportNotice
 		})
 	})
 }

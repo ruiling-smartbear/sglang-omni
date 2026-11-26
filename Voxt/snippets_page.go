@@ -6,6 +6,7 @@ package main
 
 import (
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sgl-project/sglang-omni/Voxt/internal/i18n"
@@ -35,6 +36,10 @@ type snippetsLocalUI struct {
 	importOpen    bool
 	importExample bool
 	importErr     string
+	// notice is what an import did, shown in the middle of the page for
+	// a moment from noticeAt (set by the view as it first shows it).
+	notice   string
+	noticeAt time.Time
 }
 
 type snippetEdit struct{ id, trigger, text string }
@@ -68,6 +73,7 @@ func snippetsPage(c *ui.Context, state *snippetsViewState, actions snippetsActio
 		})
 		snippetDialog(c, actions, local)
 		snippetsImportDialog(c, actions, local)
+		snippetsImportNotice(c, local)
 		return
 	}
 	ui.Scroll(c.Key("snippets-scroll")).Grow(1).MinHeight(0).Children(func() {
@@ -104,6 +110,7 @@ func snippetsPage(c *ui.Context, state *snippetsViewState, actions snippetsActio
 	})
 	snippetDialog(c, actions, local)
 	snippetsImportDialog(c, actions, local)
+	snippetsImportNotice(c, local)
 }
 
 // snippetsToolbar is the search, and the sort menu at the end of its
