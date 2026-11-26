@@ -66,7 +66,7 @@ func TestSnippetsImport(t *testing.T) {
 	if got[0].Trigger != "my email address" || got[1].Text != "https://zoom.us/j/123" {
 		t.Errorf("stored %+v", got)
 	}
-	if want := "Imported snippets: 3 new, 0 updated, 1 skipped."; !slices.Contains(a.toasts, want) && !has(tt, want) {
+	if want := "Imported: 3 new, 0 updated, 1 skipped."; !slices.Contains(a.toasts, want) && !has(tt, want) {
 		t.Errorf("toasts %q", a.toasts)
 	}
 	if a.snipUI.importOpen {
@@ -77,7 +77,7 @@ func TestSnippetsImport(t *testing.T) {
 	click(t, tt, "Import…")
 	click(t, tt, "Choose a .json file")
 	frames(tt)
-	if want := "Imported snippets: 0 new, 0 updated, 1 skipped."; len(a.snip.list.Snippets) != 3 || !slices.Contains(a.toasts, want) && !has(tt, want) {
+	if want := "Imported: 0 new, 0 updated, 1 skipped."; len(a.snip.list.Snippets) != 3 || !slices.Contains(a.toasts, want) && !has(tt, want) {
 		t.Errorf("a second import: %+v, toasts %q", a.snip.list.Snippets, a.toasts)
 	}
 
@@ -141,7 +141,7 @@ func TestSnippetsImportExample(t *testing.T) {
 			got[2].Trigger != i18n.T("my meeting link") || got[2].Text != "zoom.us/j/123" {
 			t.Errorf("%s: stored %+v", locale, got)
 		}
-		if want := i18n.T("Imported snippets: %d new, %d updated.", 1, 1); !slices.Contains(a.toasts, want) && !has(tt, want) {
+		if want := i18n.T("Imported: %d new, %d updated.", 1, 1); !slices.Contains(a.toasts, want) && !has(tt, want) {
 			t.Errorf("%s: toasts %q", locale, a.toasts)
 		}
 	}

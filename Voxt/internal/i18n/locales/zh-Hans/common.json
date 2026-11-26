@@ -459,5 +459,6 @@
   "Export…": "导出…",
   "Next session": "下一个会话",
   "Sessions": "会话",
-  "New session": "新会话"
+  "New session": "新会话",
+  "Imported: %d new, %d updated.": "已导入：新增 %d 个，更新 %d 个。"
 }

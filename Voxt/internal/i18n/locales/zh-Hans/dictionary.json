@@ -23,7 +23,6 @@
   "Glossary for the language model": "语言模型术语表",
   "Import terms": "导入词条",
   "Imported: %d new, %d updated, %d rows skipped.": "已导入：新增 %d 个，更新 %d 个，跳过 %d 行。",
-  "Imported: %d new, %d updated.": "已导入：新增 %d 个，更新 %d 个。",
   "No term matches “%s”": "没有与“%s”匹配的词条",
   "Note": "备注",
   "Note on the term": "词条备注",

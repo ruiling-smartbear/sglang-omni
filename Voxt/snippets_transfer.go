@@ -65,10 +65,10 @@ func (a *app) importSnippetsFile(path string) {
 			}
 			a.snipUI.importOpen, a.snipUI.importErr = false, ""
 			if skipped > 0 {
-				a.toast(i18n.T("Imported snippets: %d new, %d updated, %d skipped.", added, updated, skipped))
+				a.toast(i18n.T("Imported: %d new, %d updated, %d skipped.", added, updated, skipped))
 				return
 			}
-			a.toast(i18n.T("Imported snippets: %d new, %d updated.", added, updated))
+			a.toast(i18n.T("Imported: %d new, %d updated.", added, updated))
 		})
 	})
 }
